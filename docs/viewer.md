@@ -28,8 +28,7 @@ configuration. The same crates run on macOS, where the web view is WKWebView.
 | The page does | A browser window | The viewer |
 |---|---|---|
 | **Immersive full screen** (`requestFullscreen`) | fills the screen | fills the monitor, borderless |
-| keys, in immersive mode with the desktop focused | Keyboard Lock, when the browser grants it | takes every key from the OS: the Windows key, Alt+Tab, Alt+F4, Ctrl+Esc |
-| keys, windowed | a tab keeps Ctrl+W, Ctrl+T and the like | every browser chord reaches the page; the OS keeps its own |
+| keys, with the desktop focused | a tab keeps Ctrl+W, Ctrl+T and the like; the OS's own only under Keyboard Lock, in full screen | takes every key from the OS, windowed or not: the Windows key, Alt+Tab, Alt+F4, Ctrl+Esc |
 | `navigator.clipboard.readText` on focus | a permission prompt | the system clipboard, no prompt |
 | `navigator.clipboard.writeText` for the remote's copy | refused unless focused | written, focused or not |
 | **Window → Size to** (`window.resizeTo`) | an installed app window only | sizes this window, kept on its screen |
@@ -44,8 +43,8 @@ display's mode under a desktop drawn at its pixels.
 
 ### Keys
 
-While the page is in full screen, the window is in front and the page's remote surface
-(its `role="application"` element) has focus, the shell holds the keyboard: an OS hook
+While the window is in front and the page's remote surface (its `role="application"`
+element) has focus, windowed or full screen, the shell holds the keyboard: an OS hook
 (`os::hook_keys`; on Windows a low-level keyboard hook) takes every key ahead of the OS's
 shortcuts and the shell hands it to the page, where `shell.js` dispatches it on the
 focused element as the `keydown`/`keyup` the page already listens for. The code is the
@@ -53,10 +52,14 @@ UI Events code, from tao's scancode tables (`keys::dom_code`); the modifier flag
 the keys the shell is holding; Caps Lock is learnt from the last real event. Keys the
 web has no code for stay with the OS, as do injected keys, Ctrl+Alt+Del and Win+L.
 
-Windowed, nothing is hooked, as with a windowed Remote Desktop Connection: Alt+Tab and
-the Windows key stay the OS's. WebView2's browser accelerators are off, so Ctrl+W,
-Ctrl+R, F5 and the rest reach the page windowed too, as in an installed app window, and
-the window reports `display-mode: standalone` to say it is one.
+A browser hands a page the OS's keys only in full screen, because that is where Keyboard
+Lock works; the remote wants them whenever it has the keyboard, so the viewer does not
+make the distinction. The way back to local keys is the pointer — a click outside the
+window, or on the page's menu, whose controls are not the surface. Anything that takes
+focus from the surface, a panel's text box included, hands the keys back at once.
+WebView2's browser accelerators are off as well, so while the keys are not held Ctrl+W,
+Ctrl+R, F5 and the rest still reach the page, as in an installed app window, and the
+window reports `display-mode: standalone` to say it is one.
 
 Holding Escape for 1.5 s leaves full screen, as Chromium's own exit from a locked full
 screen does, and the presses reach the remote on the way.

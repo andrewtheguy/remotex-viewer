@@ -4,9 +4,10 @@
 // do what it promises in a window of its own:
 //
 //   - element full screen fills the monitor (the shell resizes the window);
-//   - while the shell holds the keyboard, keys arrive here from the OS and go to the
-//     focused element as the key events the page already listens for, and a held
-//     Escape leaves full screen, as it does in Chromium;
+//   - while the shell holds the keyboard (the remote surface focused, in front, in
+//     any mode), keys arrive here from the OS and go to the focused element as the key
+//     events the page already listens for, and a held Escape leaves full screen, as
+//     it does in Chromium;
 //   - `navigator.clipboard` is the system clipboard, answered by the shell;
 //   - `window.resizeTo` sizes this window, and the window reports itself as the app
 //     window it is, which is what shows the page's **Size to** item.

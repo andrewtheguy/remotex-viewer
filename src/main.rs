@@ -4,8 +4,9 @@
 //! from the same gateway, unchanged; what the shell adds is what the web platform
 //! promises that page and a browser window does not deliver (`shell.js`):
 //!
-//! - immersive mode (the page's element full screen) fills the monitor, and while it
-//!   lasts every key goes to the remote, the Windows key and Alt+Tab included;
+//! - immersive mode (the page's element full screen) fills the monitor;
+//! - while the remote surface has focus, every key goes to the remote, the Windows key
+//!   and Alt+Tab included, windowed or not;
 //! - the page's clipboard is the system clipboard, with no prompt and no focus rule;
 //! - `window.resizeTo` sizes this window, so the page's **Size to** item works;
 //! - on Windows, the page's HEVC decodes in this process (`webview2`).

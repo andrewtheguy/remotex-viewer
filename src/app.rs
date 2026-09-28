@@ -36,8 +36,6 @@ struct Shell {
     webview: WebView,
     proxy: EventLoopProxy<UserEvent>,
     clipboard: Clipboard,
-    /// The page is in element full screen, so this window fills its monitor.
-    fullscreen: bool,
     window_focused: bool,
     /// The page's remote surface (its `role="application"` element) has focus.
     surface_focused: bool,
@@ -77,7 +75,6 @@ pub fn run() -> Result<()> {
         window,
         clipboard: Clipboard::spawn(proxy.clone()),
         proxy,
-        fullscreen: false,
         window_focused: true,
         surface_focused: false,
         keys: None,
@@ -127,12 +124,11 @@ impl Shell {
     fn page(&mut self, m: &Value) -> Result<()> {
         match m["t"].as_str().unwrap_or("") {
             "shell.fullscreen" => {
-                self.fullscreen = m["on"].as_bool().unwrap_or(false);
                 // Borderless on the monitor the window is on: the page's own full screen
                 // already hides everything of its own, and exclusive mode would change
                 // the display's mode under a desktop that is drawn at its pixels.
-                self.window.set_fullscreen(self.fullscreen.then_some(Fullscreen::Borderless(None)));
-                self.update_keys()?;
+                let on = m["on"].as_bool().unwrap_or(false);
+                self.window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
             }
             "shell.surface" => {
                 self.surface_focused = m["focused"].as_bool().unwrap_or(false);
@@ -156,13 +152,12 @@ impl Shell {
         Ok(())
     }
 
-    /// Hold the keyboard while immersive mode is on screen, in front, with the remote
-    /// surface focused — the one arrangement in which a key is plainly meant for the
-    /// remote. Windowed, the OS keeps Alt+Tab and the Windows key, as it does for a
-    /// windowed Remote Desktop Connection; the browser's own chords reach the page
-    /// either way, because the web view reserves none (`webview2::configure`).
+    /// Hold the keyboard while the window is in front with the remote surface focused,
+    /// windowed or full screen: that is when a key is meant for the remote, and a
+    /// browser ties it to full screen only because Keyboard Lock does. The way out is
+    /// the pointer, or the page's menu, whose controls are not the surface.
     fn update_keys(&mut self) -> Result<()> {
-        let want = self.fullscreen && self.window_focused && self.surface_focused;
+        let want = self.window_focused && self.surface_focused;
         if want == self.keys.is_some() {
             return Ok(());
         }
