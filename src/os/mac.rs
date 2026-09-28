@@ -44,3 +44,8 @@ pub fn library_item(_window: &Window, _sink: LibrarySink) -> Result<()> {
 pub fn with_icon(builder: WindowBuilder) -> WindowBuilder {
     builder
 }
+
+/// Why the viewer could not start, on stderr.
+pub fn fatal(message: &str) {
+    eprintln!("remotex-viewer: {message}");
+}

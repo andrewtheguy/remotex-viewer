@@ -17,6 +17,10 @@
 //! - `window.resizeTo` sizes this window, so the page's **Size to** item works;
 //! - on Windows, the page's HEVC decodes in this process (`webview2`).
 
+// A window, not a console program: Windows opens no console for it. What stops it
+// starting is shown by `os::fatal` instead.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app;
 mod clipboard;
 mod gateway;
@@ -27,8 +31,14 @@ mod profiles;
 #[cfg(windows)]
 mod webview2;
 
-fn main() -> anyhow::Result<()> {
-    app::run()
+fn main() -> std::process::ExitCode {
+    match app::run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            os::fatal(&format!("{e:#}"));
+            std::process::ExitCode::FAILURE
+        }
+    }
 }
 
 pub enum UserEvent {
