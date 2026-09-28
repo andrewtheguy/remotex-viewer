@@ -24,6 +24,8 @@ pub struct Gateway {
     media: crate::webview2::Media,
     webview: WebView,
     pub window: Window,
+    /// What it was opened at: another connect to it comes back to this window.
+    pub url: String,
     pub window_focused: bool,
     /// The page's remote surface (its `role="application"` element) has focus.
     pub surface_focused: bool,
@@ -80,6 +82,7 @@ impl Gateway {
             media: crate::webview2::Media::new(&webview, crate::webview2::MediaProxy { proxy: proxy.clone(), window: id })?,
             webview,
             window,
+            url: url.to_owned(),
             window_focused: false,
             surface_focused: false,
         };
@@ -91,6 +94,15 @@ impl Gateway {
 
     pub fn id(&self) -> WindowId {
         self.window.id()
+    }
+
+    /// Connected to again: the gateway's page afresh, wherever this window had gone,
+    /// with the window in front.
+    pub fn reopen(&self) -> Result<()> {
+        self.webview.load_url(&self.url)?;
+        self.window.set_minimized(false);
+        self.window.set_focus();
+        Ok(())
     }
 
     pub fn page(&mut self, m: &Value, clipboard: &Clipboard) -> Result<()> {
