@@ -6,6 +6,8 @@
 //! - `work_area`: the part of a screen that windows may occupy.
 //! - `claim_instance`: make this the one viewer running, or hand what this launch was
 //!   for to the one that is and say to stop.
+//! - `library_item`: a way to the library from a gateway window that takes nothing
+//!   from its page.
 
 #[cfg(target_os = "macos")]
 mod mac;
@@ -22,3 +24,6 @@ pub type KeySink = Box<dyn Fn(u32, bool) -> bool + Send>;
 
 /// Given what a later launch was for: its gateway URL, or empty for the library.
 pub type LaunchSink = Box<dyn Fn(String) + Send>;
+
+/// Called when a gateway window asks for the library.
+pub type LibrarySink = Box<dyn Fn() + Send>;

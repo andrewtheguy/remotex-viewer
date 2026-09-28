@@ -57,6 +57,16 @@ impl Gateway {
         #[cfg(windows)]
         let builder = crate::webview2::shim(crate::webview2::configure(builder, devtools));
         let webview = builder.build(&window)?;
+        let wanted = proxy.clone();
+        let item = os::library_item(
+            &window,
+            Box::new(move || {
+                let _ = wanted.send_event(UserEvent::LibraryWanted);
+            }),
+        );
+        if let Err(e) = item {
+            eprintln!("remotex-viewer: {e:#}");
+        }
         let gateway = Self {
             #[cfg(windows)]
             media: crate::webview2::Media::new(&webview, crate::webview2::MediaProxy { proxy: proxy.clone(), window: id })?,

@@ -3,7 +3,7 @@ use tao::dpi::{PhysicalPosition, PhysicalSize};
 use tao::monitor::MonitorHandle;
 use tao::window::Window;
 
-use super::{KeySink, LaunchSink};
+use super::{KeySink, LaunchSink, LibrarySink};
 
 pub struct KeyHook;
 
@@ -30,4 +30,9 @@ impl Instance {
     pub fn listen(&self, _sink: LaunchSink) -> Result<()> {
         Ok(())
     }
+}
+
+/// Not yet: on macOS this is a **Library** item in the app's menu bar.
+pub fn library_item(_window: &Window, _sink: LibrarySink) -> Result<()> {
+    Ok(())
 }

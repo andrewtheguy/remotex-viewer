@@ -12,15 +12,16 @@ use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFO};
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, CallNextHookEx, CreateWindowExW, DefWindowProcW, FindWindowExW, GetForegroundWindow,
-    GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED,
-    RegisterClassW, SendMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_COPYDATA, WM_KEYDOWN, WM_SYSKEYDOWN, WNDCLASSW,
+    AllowSetForegroundWindow, AppendMenuW, CallNextHookEx, CreateWindowExW, DefWindowProcW, FindWindowExW, GetForegroundWindow,
+    GetSystemMenu, GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
+    LLKHF_INJECTED, MF_SEPARATOR, MF_STRING, RegisterClassW, SendMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_COPYDATA, WM_KEYDOWN, WM_NCDESTROY, WM_SYSCOMMAND, WM_SYSKEYDOWN, WNDCLASSW,
 };
 use windows_core::{PCWSTR, w};
 
-use super::{KeySink, LaunchSink};
+use super::{KeySink, LaunchSink, LibrarySink};
 
 // A low-level hook procedure takes no context, so its sink and window are process-wide;
 // only the gateway window holding the keyboard has a hook, so there is at most one.
@@ -192,4 +193,55 @@ unsafe extern "system" fn receive(window: HWND, message: u32, wparam: WPARAM, lp
     }
     // SAFETY: everything else, as received.
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
+}
+
+/// The gateway window's system menu item that brings the library forward. Below 0xF000
+/// with the low four bits clear, as a system menu command must be.
+const LIBRARY_ITEM: usize = 0x0010;
+const LIBRARY_SUBCLASS: usize = 1;
+
+static LIBRARY: Mutex<Option<LibrarySink>> = Mutex::new(None);
+
+/// Add **Library** to the window's system menu — the title bar's right click, or
+/// Alt+Space while the keyboard is not held — which takes nothing from the page.
+/// `sink` is called when it is chosen, from any window that has it.
+pub fn library_item(window: &Window, sink: LibrarySink) -> Result<()> {
+    *LIBRARY.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
+    let hwnd = HWND(window.hwnd() as *mut _);
+    // SAFETY: a live window of this thread's, its own system menu, and a subclass that
+    // removes itself when the window goes.
+    unsafe {
+        let menu = GetSystemMenu(hwnd, false);
+        AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null()).context("add to the system menu")?;
+        AppendMenuW(menu, MF_STRING, LIBRARY_ITEM, w!("&Library")).context("add to the system menu")?;
+        anyhow::ensure!(
+            SetWindowSubclass(hwnd, Some(system_command), LIBRARY_SUBCLASS, 0).as_bool(),
+            "subclass the window for its system menu"
+        );
+    }
+    Ok(())
+}
+
+unsafe extern "system" fn system_command(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    if message == WM_SYSCOMMAND && wparam.0 & 0xFFF0 == LIBRARY_ITEM {
+        if let Some(sink) = LIBRARY.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            sink();
+        }
+        return LRESULT(0);
+    }
+    if message == WM_NCDESTROY {
+        // SAFETY: the subclass `library_item` set on this window.
+        unsafe {
+            let _ = RemoveWindowSubclass(window, Some(system_command), LIBRARY_SUBCLASS);
+        }
+    }
+    // SAFETY: everything else, as received, to the next procedure in the chain.
+    unsafe { DefSubclassProc(window, message, wparam, lparam) }
 }

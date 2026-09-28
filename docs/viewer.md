@@ -41,10 +41,14 @@ a step down and right of the one opened before it.
 
 They are all one process. A later launch finds the viewer already running and hands
 it what it was launched for — its URL, which opens that gateway, or with none, the
-library, brought forward — and ends. That is also the way back to a library put away:
-closing it while a gateway is open only hides it. Closing the last window, the library
-or a gateway with the library put away, ends the viewer. Gateway windows carry nothing
-of the library: no button and no bar, only the page.
+library, brought forward — and ends. Closing the library while a gateway is open only
+hides it, and closing the last window, the library or a gateway with the library put
+away, ends the viewer.
+
+Gateway windows carry nothing of the library: no button and no bar, only the page. The
+way back to it from one is **Library** in the window's system menu — a right click on
+the title bar, or Alt+Space while the remote does not hold the keyboard — or launching
+the viewer again. In full screen neither is in reach until full screen is left.
 
 On Windows the first launch holds a named mutex and a message-only window, and a later
 one sends that window its URL (`os::claim_instance`). On macOS, Launch Services keeps
@@ -160,5 +164,5 @@ The WebView2 runtime ships with Windows 11 and current Windows 10.
 - macOS: the key hook (a `CGEventTap`) and the work area (`NSScreen.visibleFrame`) are
   stubs.
 - macOS: a later launch reaches the running viewer as a reopen, which it does not
-  take yet.
+  take yet, and **Library** belongs in the app's menu bar, which it has no item in yet.
 - Packaging, and a remembered size for a gateway's window.

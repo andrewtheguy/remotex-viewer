@@ -39,6 +39,8 @@ pub enum UserEvent {
     Library(String),
     /// A later launch, handed over: its gateway URL, or empty for the library.
     Launched(String),
+    /// A gateway window's **Library** menu item.
+    LibraryWanted,
     /// A key taken from the OS for the gateway window holding the keyboard.
     Key { code: String, pressed: bool },
     /// The answer to a gateway page's clipboard request `id`: the text read, or

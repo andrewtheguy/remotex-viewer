@@ -143,6 +143,7 @@ impl App {
                 self.library_message(target, &message)?;
             }
             UserEvent::Launched(launch) if launch.is_empty() => self.library.show()?,
+            UserEvent::LibraryWanted => self.library.show()?,
             UserEvent::Launched(url) => self.open(target, &url)?,
             UserEvent::Key { code, pressed } => {
                 if let Some(gateway) = self.keys.as_ref().and_then(|(id, _)| self.gateways.get(id)) {
