@@ -292,6 +292,14 @@ workerMain(MAGIC, installDecoder);
     bytesIn: 0,
     ringWaits: 0,
   };
+  // The timings keep the most recent samples only: a session runs for hours.
+  const SAMPLES = 600;
+  const sample = (list, value) => {
+    list.push(value);
+    if (list.length > SAMPLES) {
+      list.shift();
+    }
+  };
 
   function place(len) {
     if (spans.length === 0) {
@@ -385,7 +393,7 @@ workerMain(MAGIC, installDecoder);
               timestamp: f.ts,
               colorSpace: COLOR(f.space),
             });
-            stats.frameMs.push(performance.now() - t0);
+            sample(stats.frameMs, performance.now() - t0);
             stats.frames++;
           }
         } catch (e) {
@@ -395,10 +403,10 @@ workerMain(MAGIC, installDecoder);
         }
       }
       if (m.decodeUs !== undefined) {
-        stats.decodeUs.push(m.decodeUs);
+        sample(stats.decodeUs, m.decodeUs);
       }
       if (m.copyUs !== undefined) {
-        stats.copyUs.push(m.copyUs);
+        sample(stats.copyUs, m.copyUs);
       }
       pump();
       if (!session) {

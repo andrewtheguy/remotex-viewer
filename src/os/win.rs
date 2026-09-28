@@ -30,6 +30,8 @@ static WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 pub struct KeyHook(HHOOK);
 
+pub const HOLDS_KEYS: bool = true;
+
 /// A low-level keyboard hook: it sees a key before the shell does, so the Windows key,
 /// Alt+Tab, Alt+F4 and Ctrl+Esc are the page's while it is installed. Only keys typed
 /// while this window is in front are taken; injected ones pass, and Ctrl+Alt+Del and

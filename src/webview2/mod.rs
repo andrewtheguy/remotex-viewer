@@ -61,6 +61,8 @@ pub enum MediaEvent {
     },
     /// A slot no decoder will use again.
     Retire(u32),
+    /// A decoder thread has ended, and reads its document's ring no more.
+    Exited { document: u64 },
 }
 
 /// The event loop, addressed to one gateway window's `Media`.
@@ -79,6 +81,14 @@ impl MediaProxy {
     }
 }
 
+/// The shared buffer one document writes its access units into.
+struct Ring {
+    buffer: ICoreWebView2SharedBuffer,
+    base: usize,
+    /// Decoder threads started for the document and not yet ended: any may still read it.
+    decoders: usize,
+}
+
 struct Slot {
     buffer: ICoreWebView2SharedBuffer,
     session: u32,
@@ -89,9 +99,10 @@ pub struct Media {
     core: ICoreWebView2,
     core17: ICoreWebView2_17,
     env12: ICoreWebView2Environment12,
-    ring: Option<(ICoreWebView2SharedBuffer, usize)>,
-    /// Rings of earlier documents: a decoder thread may still read one.
-    old_rings: Vec<ICoreWebView2SharedBuffer>,
+    /// The current document, counted from the first.
+    document: u64,
+    /// Its ring, and each earlier document's while a decoder thread may still read it.
+    rings: HashMap<u64, Ring>,
     sessions: HashMap<u32, Session>,
     slots: HashMap<u32, Slot>,
     next_slot: u32,
@@ -106,8 +117,8 @@ impl Media {
             core17: core.cast().context("WebView2 runtime without ICoreWebView2_17 (shared buffers)")?,
             env12: env.cast().context("WebView2 runtime without ICoreWebView2Environment12")?,
             core,
-            ring: None,
-            old_rings: Vec::new(),
+            document: 0,
+            rings: HashMap::new(),
             sessions: HashMap::new(),
             slots: HashMap::new(),
             next_slot: 1,
@@ -122,6 +133,12 @@ impl Media {
                 let _ = reply.send(self.make_slots(session, bytes, count));
             }
             MediaEvent::Retire(slot) => self.retire(slot)?,
+            MediaEvent::Exited { document } => {
+                if let Some(ring) = self.rings.get_mut(&document) {
+                    ring.decoders -= 1;
+                }
+                self.close_rings()?;
+            }
         }
         Ok(())
     }
@@ -131,14 +148,20 @@ impl Media {
         match m["t"].as_str().unwrap_or("") {
             "hello" => self.hello()?,
             "configure" => {
-                let session = self.sessions.entry(id).or_insert_with(|| Session::spawn(id, self.proxy.clone()));
+                let session = self.sessions.entry(id).or_insert_with(|| {
+                    if let Some(ring) = self.rings.get_mut(&self.document) {
+                        ring.decoders += 1;
+                    }
+                    Session::spawn(id, self.document, self.proxy.clone())
+                });
                 let _ = session.commands.send(Cmd::Configure);
             }
             "decode" => {
-                let (_, base) = self.ring.as_ref().context("a decode before the ring")?;
-                let off = m["off"].as_u64().context("off")? as usize;
-                let len = m["len"].as_u64().context("len")? as usize;
-                anyhow::ensure!(off + len <= RING_BYTES, "a unit outside the ring");
+                let base = self.rings.get(&self.document).context("a decode before the ring")?.base;
+                let off = usize::try_from(m["off"].as_u64().context("off")?).context("off")?;
+                let len = usize::try_from(m["len"].as_u64().context("len")?).context("len")?;
+                let end = off.checked_add(len);
+                anyhow::ensure!(end.is_some_and(|end| end <= RING_BYTES), "a unit outside the ring");
                 let cmd = Cmd::Decode {
                     seq: m["seq"].as_u64().context("seq")?,
                     at: base + off,
@@ -184,16 +207,16 @@ impl Media {
         Ok(())
     }
 
-    /// A new document: forget the old one's decoders and give it a ring.
+    /// A new document: forget the old one's decoders and give it a ring. The old ring
+    /// is kept until the last of them has ended.
     fn hello(&mut self) -> Result<()> {
         for (_, session) in self.sessions.drain() {
             let _ = session.commands.send(Cmd::Close);
         }
-        if let Some((ring, _)) = self.ring.take() {
-            self.old_rings.push(ring);
-        }
+        self.document += 1;
+        self.close_rings()?;
         // SAFETY: COM calls on the UI thread; the buffer outlives every pointer taken
-        // from it (it is kept in `ring`, then `old_rings`, for the life of the window).
+        // from it (it is kept in `rings` until no decoder thread reads it).
         unsafe {
             let ring = self.env12.CreateSharedBuffer(RING_BYTES as u64)?;
             let mut base = std::ptr::null_mut();
@@ -203,7 +226,19 @@ impl Media {
                 COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_WRITE,
                 &HSTRING::from(json!({"kind": "in"}).to_string()),
             )?;
-            self.ring = Some((ring, base as usize));
+            self.rings.insert(self.document, Ring { buffer: ring, base: base as usize, decoders: 0 });
+        }
+        Ok(())
+    }
+
+    /// Close each earlier document's ring that no decoder thread reads any more.
+    fn close_rings(&mut self) -> Result<()> {
+        let unread: Vec<u64> =
+            self.rings.iter().filter(|(d, r)| **d != self.document && r.decoders == 0).map(|(d, _)| *d).collect();
+        for document in unread {
+            let ring = self.rings.remove(&document).expect("just found");
+            // SAFETY: a COM call on the UI thread.
+            unsafe { ring.buffer.Close()? };
         }
         Ok(())
     }

@@ -254,7 +254,11 @@ impl App {
     /// and a browser ties it to full screen only because Keyboard Lock does. The way
     /// out is the pointer, or the page's menu, whose controls are not the surface.
     fn update_keys(&mut self) -> Result<()> {
-        let want = self.gateways.values().find(|g| g.window_focused && g.surface_focused).map(Gateway::id);
+        let want = self
+            .gateways
+            .values()
+            .find(|g| os::HOLDS_KEYS && g.window_focused && g.surface_focused)
+            .map(Gateway::id);
         if want == self.keys.as_ref().map(|(id, _)| *id) {
             return Ok(());
         }

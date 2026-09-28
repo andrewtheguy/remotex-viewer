@@ -102,9 +102,10 @@ impl Store {
         self.saved.profiles.iter().find(|p| p.url == url)
     }
 
-    /// Save `name` and `url` into the profile `id`, or into a new one after the rest
+    /// Save `name` and `url` into the saved profile `id`, or into a new one after the rest
     /// when `id` is none, which the form then shows. Answers the profile as saved.
     pub fn put(&mut self, id: Option<&str>, name: &str, url: &str) -> Result<Profile> {
+        anyhow::ensure!(id.is_none_or(|id| self.find(id).is_some()), "That gateway is no longer saved.");
         let profile = Profile {
             id: id.map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned),
             name: name.trim().to_owned(),

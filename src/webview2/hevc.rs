@@ -31,12 +31,16 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn spawn(id: u32, proxy: MediaProxy) -> Self {
+    /// A decoder reading `document`'s ring, which it says it no longer does as it ends.
+    pub fn spawn(id: u32, document: u64, proxy: MediaProxy) -> Self {
         let (commands, command_rx) = mpsc::channel();
         let (frees, free_rx) = mpsc::channel();
         std::thread::Builder::new()
             .name(format!("hevc-{id}"))
-            .spawn(move || run(id, &proxy, &command_rx, &free_rx))
+            .spawn(move || {
+                run(id, &proxy, &command_rx, &free_rx);
+                let _ = proxy.send(MediaEvent::Exited { document });
+            })
             .expect("spawn a decoder thread");
         Self { commands, frees }
     }
@@ -80,7 +84,10 @@ fn run(id: u32, proxy: &MediaProxy, commands: &mpsc::Receiver<Cmd>, frees: &mpsc
                                     message["frame"] = frame;
                                     message["copyUs"] = json!(copy_us);
                                 }
-                                Ok(None) => return,
+                                Ok(None) => {
+                                    post(proxy, message);
+                                    break;
+                                }
                                 Err(e) => {
                                     post(proxy, json!({"t": "error", "id": id, "message": format!("{e:#}")}));
                                     decoder = None;

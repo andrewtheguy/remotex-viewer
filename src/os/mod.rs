@@ -2,7 +2,8 @@
 //!
 //! - `hook_keys`: take keys from the OS ahead of its own shortcuts, handing each to
 //!   `sink` by platform scancode (see `keys::dom_code`); a key `sink` declines goes on
-//!   to the OS. The keys stay taken until the returned hook is dropped.
+//!   to the OS. The keys stay taken until the returned hook is dropped. It is called
+//!   only where `HOLDS_KEYS` says the OS can.
 //! - `work_area`: the part of a screen that windows may occupy.
 //! - `claim_instance`: make this the one viewer running, or hand what this launch was
 //!   for to the one that is and say to stop.

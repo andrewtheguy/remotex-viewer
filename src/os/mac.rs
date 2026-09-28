@@ -7,6 +7,9 @@ use super::{KeySink, LaunchSink, LibrarySink};
 
 pub struct KeyHook;
 
+/// Not yet, so the keyboard is never asked for and the page keeps its own keys.
+pub const HOLDS_KEYS: bool = false;
+
 /// Not yet: on macOS this is a `CGEventTap` handing the sink each key's virtual key
 /// code, which `keys::dom_code` already reads.
 pub fn hook_keys(_window: &Window, _sink: KeySink) -> Result<KeyHook> {
