@@ -15,11 +15,11 @@ use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, AppendMenuW, CallNextHookEx, CreateWindowExW, DefWindowProcW, FindWindowExW, GetForegroundWindow,
-    GetSystemMenu, GetSystemMetrics, GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
+    GetSystemMenu, GetSystemMetrics, MB_ICONERROR, MB_OK, MessageBoxW, GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
     LLKHF_INJECTED, MF_SEPARATOR, MF_STRING, RegisterClassW, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX, SendMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
     WM_COPYDATA, WM_KEYDOWN, WM_NCDESTROY, WM_SYSCOMMAND, WM_SYSKEYDOWN, WNDCLASSW,
 };
-use windows_core::{PCWSTR, w};
+use windows_core::{HSTRING, PCWSTR, w};
 
 use super::{KeySink, LaunchSink, LibrarySink};
 
@@ -258,4 +258,10 @@ pub fn with_icon(builder: WindowBuilder) -> WindowBuilder {
             .ok()
     };
     builder.with_window_icon(icon(SM_CXSMICON)).with_taskbar_icon(icon(SM_CXICON))
+}
+
+/// Why the viewer could not start, in a message box: it has no console to say it on.
+pub fn fatal(message: &str) {
+    // SAFETY: no owner window, and both strings outlive the call.
+    unsafe { MessageBoxW(None, &HSTRING::from(message), w!("remotex viewer"), MB_OK | MB_ICONERROR) };
 }

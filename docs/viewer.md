@@ -8,6 +8,9 @@ builds the crate, and nothing is done to make it build there.
 remotex-viewer [https://gateway.example/] [--devtools]
 ```
 
+On Windows it is a window program, not a console one: starting it opens no console, and
+what stops it starting — a bad argument, say — is shown in a message box.
+
 ## The library
 
 The viewer opens on its **library**: the saved gateways as a list, and beside it a form

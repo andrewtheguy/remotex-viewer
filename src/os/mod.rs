@@ -10,6 +10,7 @@
 //! - `library_item`: a way to the library from a gateway window that takes nothing
 //!   from its page.
 //! - `with_icon`: the app's icon on a window about to be built.
+//! - `fatal`: say why the viewer could not start, where its user will see it.
 
 #[cfg(target_os = "macos")]
 mod mac;
