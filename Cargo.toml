@@ -1,11 +1,11 @@
 [package]
 name = "remotex-viewer"
-version.workspace = true
+version = "0.0.1"
 edition = "2024"
 publish = false
 
-# Gateways' pages in windows of their own, on Windows and macOS; Linux is out of
-# scope, and no command at the root builds this crate. Built with Tauri's own
+# remotex gateways' pages in windows of their own, on Windows and macOS; Linux is
+# out of scope, and nothing is done to make it build there. Built with Tauri's own
 # window and web view crates (tao, wry) and arboard, the clipboard crate Tauri's
 # clipboard plugin uses, rather than Tauri itself: a library of gateways and a
 # window showing each one's page need none of Tauri's commands, bundler or
@@ -22,7 +22,7 @@ uuid = { version = "1", features = ["v4"] }
 wry = "0.57"
 
 # WebView2 decodes no HEVC 4:4:4, so on Windows the page's HEVC goes to FFmpeg's
-# decoder in this process — the same one the gateway links for `apple-hp-media`.
+# decoder in this process — the same one remotex links for `apple-hp-media`.
 [target.'cfg(windows)'.dependencies]
 avcodec-hevc-sys = { package = "libavcodec-hevc-prebuilt-sys", git = "https://github.com/andrewtheguy/libavcodec-hevc-prebuilt", tag = "v9.0.2-20260928041244-5fdbab1" }
 webview2-com = "0.39"

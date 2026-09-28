@@ -2,10 +2,10 @@
 # Build remotex-viewer's Windows installer from a release tag and attach it to a release
 # of the same name in the operator's private repository, andrewtheguy/remotex-viewer-releases.
 #
-# The release workflow never builds the viewer: on Windows it links FFmpeg's HEVC
-# decoder, whose licence keeps it out of public release artifacts, as it keeps the
-# `apple-hp-media` feature out of them (publish-full-image.sh is that feature's private
-# build). The repository must stay private; the script refuses one that is not.
+# The viewer has no public release: on Windows it links FFmpeg's HEVC decoder, whose
+# licence keeps it out of public release artifacts, as it keeps remotex's
+# `apple-hp-media` feature out of them. The repository must stay private; the script
+# refuses one that is not.
 #
 # It builds a tag and nothing else, from `git archive` of that tag in this checkout,
 # and only one GitHub also has at the same commit. The build runs on windows-ci-build
@@ -22,7 +22,7 @@
 #
 #   packaging/publish-windows-viewer.sh TAG
 #
-#   TAG  the tag to build, e.g. v0.0.279
+#   TAG  the tag to build, v<the version in Cargo.toml>, e.g. v0.0.1
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,7 +48,7 @@ remote_commit="$(git rev-parse --verify --quiet "${remote}^{commit}" 2>/dev/null
 
 version="$(git show "${commit}:Cargo.toml" | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)"
 [ "v${version}" = "$tag" ] \
-  || { echo "${tag} builds remotex ${version}; a tag is v<its version>" >&2; exit 1; }
+  || { echo "${tag} builds remotex-viewer ${version}; a tag is v<its version>" >&2; exit 1; }
 
 # Before anything is built.
 visibility="$(gh repo view "$releases" --json visibility --jq .visibility)" \
@@ -62,7 +62,7 @@ fi
 
 # The archive release the tag's viewer pins: libavcodec-hevc-prebuilt tags its source
 # and its archives' release alike.
-pin="$(git show "${commit}:crates/remotex-viewer/Cargo.toml" \
+pin="$(git show "${commit}:Cargo.toml" \
   | sed -n 's/^avcodec-hevc-sys = .*tag = "\([^"]*\)".*$/\1/p')"
 [ -n "$pin" ] || { echo "${tag}'s viewer pins no libavcodec-hevc-prebuilt tag" >&2; exit 1; }
 
@@ -97,7 +97,7 @@ scp -q "${windows}:${built}" "$out/$msi"
 
 echo ">> publishing ${releases} ${tag}"
 gh release create "$tag" --repo "$releases" --title "remotex-viewer ${version}" --notes "$(cat <<EOF
-remotex-viewer ${version}'s installer for Windows x86-64, built from andrewtheguy/remotex ${tag} (${commit}).
+remotex-viewer ${version}'s installer for Windows x86-64, built from andrewtheguy/remotex-viewer ${tag} (${commit}).
 
 The installer puts remotex viewer under Program Files with a Start menu shortcut, and the Visual C++ runtime beside it. The viewer links FFmpeg ${ffmpeg}'s libavcodec (LGPL-2.1-or-later) statically, from ${hevc_archives} ${pin}, and needs the WebView2 runtime, which ships with Windows 11 and current Windows 10.
 EOF

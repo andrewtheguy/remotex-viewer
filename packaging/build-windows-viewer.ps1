@@ -30,7 +30,7 @@ if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "remotex-viewer $version is no
 # Cargo reruns a build script when its inputs change, and the archive's path does not:
 # cleaning that one crate makes it link the archive staged now.
 & cargo clean --release -p libavcodec-hevc-prebuilt-sys 2>&1 | ForEach-Object { "$_" }
-& cargo build -p remotex-viewer --release --locked 2>&1 | ForEach-Object { "$_" }
+& cargo build --release --locked 2>&1 | ForEach-Object { "$_" }
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed (exit $LASTEXITCODE)" }
 $exe = Join-Path $env:CARGO_TARGET_DIR 'release\remotex-viewer.exe'
 
@@ -51,7 +51,7 @@ Copy-Item (Join-Path $crt.FullName 'vcruntime140.dll'), (Join-Path $crt.FullName
 $msi = Join-Path $Root 'dist\remotex-viewer-windows-x86_64.msi'
 Write-Host ">> building the MSI for remotex-viewer $version"
 & wix build -arch x64 -ext $uiExt -d "Version=$version" -d "Stage=$stage" `
-    -d "Icon=$(Resolve-Path 'crates\remotex-viewer\icons\remotex-viewer.ico')" `
+    -d "Icon=$(Resolve-Path 'icons\remotex-viewer.ico')" `
     -o $msi packaging\windows\remotex-viewer.wxs
 if ($LASTEXITCODE -ne 0) { throw "wix build failed (exit $LASTEXITCODE)" }
 

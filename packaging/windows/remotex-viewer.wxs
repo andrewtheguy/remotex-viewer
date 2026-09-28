@@ -18,7 +18,7 @@
   beside it; it must never change, and it is not the gateway's: the two are separate products.
 
   The UI is WiX's stock InstallDir wizard with its licence page skipped, as the gateway's
-  package does (remotex.wxs).
+  package does (remotex's packaging/windows/remotex.wxs).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
@@ -30,7 +30,7 @@
 
     <Icon Id="RemotexViewerIcon" SourceFile="$(var.Icon)" />
     <Property Id="ARPPRODUCTICON" Value="RemotexViewerIcon" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/andrewtheguy/remotex" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/andrewtheguy/remotex-viewer" />
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <UI>

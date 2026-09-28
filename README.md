@@ -1,8 +1,9 @@
 # remotex-viewer
 
-`remotex-viewer` (`crates/remotex-viewer`) shows gateways' pages, each in a window of
-its own, on Windows now and macOS next. Linux is out of scope: no command at the root
-builds the crate, and nothing is done to make it build there.
+`remotex-viewer` shows [remotex](https://github.com/andrewtheguy/remotex) gateways'
+pages, each in a window of its own, on Windows now and macOS next. Linux is out of scope,
+and nothing is done to make it build there. It is versioned and released apart from
+remotex: the two meet at the page, over the [interop protocol](docs/interop.md).
 
 ```sh
 remotex-viewer [https://gateway.example/] [--devtools]
@@ -146,10 +147,11 @@ than the screen scrolls, as it does in any window.
 ## HEVC on Windows
 
 No Windows browser decodes a High Performance Mac's HEVC 4:4:4, so WebView2 gets it from
-the viewer (`src/webview2/`). `hevc_shim.js` stands in for `VideoDecoder` for `hev1.` and
+the viewer (`src/webview2/`), in a page that speaks version 1 of the
+[interop protocol](docs/interop.md). `hevc_shim.js` stands in for `VideoDecoder` for `hev1.` and
 `hvc1.` codecs, in the page and in every worker the page starts, and leaves every other
 codec — VP9 included — to WebCodecs. Access units reach the viewer through a 32 MB shared
-ring the page writes; FFmpeg's HEVC decoder (the one `apple-hp-media` links) decodes each
+ring the page writes; FFmpeg's HEVC decoder (the one remotex's `apple-hp-media` links) decodes each
 on a thread per decoder; the picture goes back through one of three read-only shared
 slots, from which the page builds an `I444` `VideoFrame`. With the shim, the page's load
 time question answers yes to the Mac's HEVC, so a target with `media_passthrough` passes
@@ -160,12 +162,12 @@ On macOS, WKWebView decodes the Mac's HEVC itself, so none of this applies there
 
 ## Building
 
-It is a workspace member that commands at the root never build: pick it with
-`-p remotex-viewer`, on Windows or macOS. The Windows half needs FFmpeg's prebuilt HEVC decoder, which
-`LIBAVCODEC_HEVC_PREBUILT_DIR` points at on `windows-ci-build`.
+On Windows or macOS. The Windows half needs FFmpeg's prebuilt HEVC decoder,
+[libavcodec-hevc-prebuilt](https://github.com/andrewtheguy/libavcodec-hevc-prebuilt),
+which `LIBAVCODEC_HEVC_PREBUILT_DIR` points at on `windows-ci-build`.
 
 ```powershell
-cargo build -p remotex-viewer --release
+cargo build --release
 ```
 
 The WebView2 runtime ships with Windows 11 and current Windows 10.
@@ -174,6 +176,29 @@ The icon is `icons/icon.svg`, a display. `icons/make-icon.sh` renders it into
 `icons/remotex-viewer.ico`, which is committed, so a build needs no SVG rasterizer;
 `build.rs` embeds it in the Windows executable and every window shows it. Edit the
 SVG, run the script, commit both.
+
+## Releasing
+
+The viewer is in no public release: on Windows it links FFmpeg's libavcodec statically
+(LGPL-2.1-or-later), which keeps it out of public release artifacts as it keeps remotex's
+`apple-hp-media` out of them. A release is a tag, `v` and the version in `Cargo.toml`,
+pushed here; `packaging/publish-windows-viewer.sh TAG` then builds that tag's installer,
+`remotex-viewer-VERSION-windows-x86_64.msi`, on `windows-ci-build`
+(`packaging/build-windows-viewer.ps1`, which installs and removes it there), and attaches
+it to a release of the same name in the private `andrewtheguy/remotex-viewer-releases`,
+which it refuses to publish to unless that repository is private. `windows-ci-build` has
+no `gh`, so the script downloads the libavcodec archive release `Cargo.toml` pins, checks
+it against that release's `SHA256SUMS`, and sends it there with the tag's tree.
+
+```sh
+git tag v0.0.1 && git push origin v0.0.1
+packaging/publish-windows-viewer.sh v0.0.1
+```
+
+The package installs the viewer under Program Files with a Start menu shortcut, and the
+Visual C++ runtime beside it: the archive is built against the DLL C runtime, so the
+viewer cannot link it statically, and the package does not rely on a machine having the
+redistributable. The WebView2 runtime ships with Windows.
 
 ## Not yet
 
