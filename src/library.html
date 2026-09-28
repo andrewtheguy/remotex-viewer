@@ -168,7 +168,8 @@
     <div id="message" role="alert"></div>
     <div class="actions">
       <button type="button" id="save">Save</button>
-      <button type="submit" class="accent">Connect</button>
+      <button type="submit" class="accent" id="connect">Connect</button>
+      <button type="button" class="accent" id="disconnect" hidden>Disconnect</button>
     </div>
   </form>
 </main>
@@ -188,11 +189,15 @@
   const urlBox = $("url");
   const saveButton = $("save");
   const removeButton = $("remove");
+  const connectButton = $("connect");
+  const disconnectButton = $("disconnect");
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
 
   // --- The viewer: its requests, answered with the list as it now is.
   let profiles = [];
   let current = null;
+  // The gateways with a window open.
+  let connected = new Set();
   let loaded = false;
   // The form has been on the screen, so what is in it may have been typed.
   let presented = false;
@@ -227,8 +232,15 @@
     return nameBox.value.trim() !== s.name || urlBox.value.trim() !== s.url;
   }
 
+  // What the form offers: a gateway whose window is open is not edited while it is
+  // connected, and is disconnected rather than connected to.
   function edited() {
-    saveButton.disabled = !hasEdits();
+    const on = current !== null && connected.has(current);
+    nameBox.disabled = on;
+    urlBox.disabled = on;
+    saveButton.disabled = on || !hasEdits();
+    connectButton.hidden = on;
+    disconnectButton.hidden = !on;
   }
 
   function say(message) {
@@ -258,8 +270,11 @@
     return true;
   }
 
+  // A gateway already connected is only brought forward, its page reloaded.
   async function connect() {
-    if (await commit()) {
+    if (current !== null && connected.has(current)) {
+      send({ t: "connect", profile: current });
+    } else if (await commit()) {
       send({ t: "connect", profile: current });
     }
   }
@@ -476,6 +491,12 @@
   });
 
   saveButton.addEventListener("click", () => commit());
+  // Closes the gateway's window, which leaves the form to be edited again.
+  disconnectButton.addEventListener("click", () => {
+    if (current !== null) {
+      send({ t: "disconnect", profile: current });
+    }
+  });
   // Enter in any field is Connect, which is what the button says too.
   $("form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -496,6 +517,8 @@
     receive(m) {
       if (m.state) {
         profiles = m.state.profiles;
+        connected = new Set(m.state.connected);
+        edited();
       }
       if (m.t === "state") {
         render();

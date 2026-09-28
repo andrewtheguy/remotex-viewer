@@ -2,7 +2,8 @@
 //! from it, in one process.
 //!
 //! **Connect** adds a gateway window in front of the library, which stays where it is;
-//! it never takes one away, so several gateways stand side by side. There is one
+//! it never takes one away, so several gateways stand side by side. A gateway already
+//! open is not opened twice: its window is reloaded and brought forward. There is one
 //! library, brought forward rather than made again: by a later launch without a URL.
 //! Closing the last window — the library, or a gateway with the library put away —
 //! ends the viewer.
@@ -166,12 +167,16 @@ impl App {
     }
 
     /// Open `url` in a window of its own, in front of the library and beside whatever
-    /// else is already open.
+    /// else is already open; or, when a window is open at it already, reload that one.
+    /// A gateway has one session, which a second window would only take over.
     fn open(&mut self, target: &EventLoopWindowTarget<UserEvent>, url: &str) -> Result<()> {
+        if let Some(gateway) = self.gateways.values().find(|g| g.url == url) {
+            return gateway.reopen();
+        }
         let gateway = Gateway::open(target, &mut self.context, &self.proxy, url, self.opened, self.devtools)?;
         self.opened += 1;
         self.gateways.insert(gateway.id(), gateway);
-        Ok(())
+        self.library.send(self.state())
     }
 
     fn close(&mut self, id: WindowId) -> Result<()> {
@@ -182,6 +187,7 @@ impl App {
         }
         self.gateways.remove(&id);
         self.update_keys()?;
+        self.library.send(self.state())?;
         // With nothing else on the screen — no other gateway, and a library that was
         // put away rather than asked for — the viewer goes with it.
         if self.gateways.is_empty() && !self.library.is_visible() {
@@ -229,6 +235,12 @@ impl App {
                 let url = self.store.find(text("profile")?).context("connect to a gateway not saved")?.url.clone();
                 self.open(target, &url)?;
             }
+            "disconnect" => {
+                let url = &self.store.find(text("profile")?).context("disconnect from a gateway not saved")?.url;
+                if let Some(id) = self.gateways.values().find(|g| g.url == *url).map(Gateway::id) {
+                    self.close(id)?;
+                }
+            }
             "leave" => self.leave()?,
             other => eprintln!("remotex-viewer: an unknown library message {other:?}"),
         }
@@ -245,8 +257,21 @@ impl App {
         self.library.send(reply)
     }
 
+    /// The list, the one selected, and which of them have a window open: the library
+    /// is told again whenever a gateway's window opens or closes.
     fn state(&self) -> Value {
-        json!({"t": "state", "state": {"profiles": self.store.profiles(), "selected": self.store.selected()}})
+        let connected: Vec<&str> = self
+            .store
+            .profiles()
+            .iter()
+            .filter(|p| self.gateways.values().any(|g| g.url == p.url))
+            .map(|p| p.id.as_str())
+            .collect();
+        json!({"t": "state", "state": {
+            "profiles": self.store.profiles(),
+            "selected": self.store.selected(),
+            "connected": connected,
+        }})
     }
 
     /// Hold the keyboard for the gateway window in front with its remote surface

@@ -22,6 +22,9 @@ the archived `wlshare-windows` client, with the same rules:
   with nothing selected either makes a new gateway of what is typed. **+** clears the
   form for a new one, which joins the list once it is saved, and **−** deletes the
   selected one.
+- While a gateway's window is open, its form cannot be edited, and **Disconnect**, which
+  closes that window, stands in for **Connect**. Enter or a double-click on its row
+  brings the window forward, its page reloaded.
 - Moving to another row, **+**, or closing the library with something unsaved in the
   form asks whether to keep it: **Save**, **Don't Save**, which puts the form back as
   it is saved, or **Cancel**.
@@ -40,7 +43,10 @@ middle of the screen the first time or when that screen is gone.
 Each gateway opens in a window of its own, in front of the library, which stays where
 it is: connecting adds a window rather than taking the place of anything open, so
 several gateways can be open at once. Each window opens at three quarters of its screen,
-a step down and right of the one opened before it.
+a step down and right of the one opened before it. A gateway is open in one window at
+most, since it has one session and a second window would only take it over:
+connecting to one already open, from the library or by a launch with its URL, reloads
+its window and brings it forward.
 
 They are all one process. A later launch finds the viewer already running and hands
 it what it was launched for — its URL, which opens that gateway, or with none, the
