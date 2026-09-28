@@ -173,4 +173,6 @@ SVG, run the script, commit both.
 - macOS: a later launch reaches the running viewer as a reopen, which it does not
   take yet, and **Library** belongs in the app's menu bar, which it has no item in yet.
 - macOS: the icon, which is an app bundle's (an `.icns` from the same SVG).
-- Packaging, and a remembered size for a gateway's window.
+- An installer: a Windows release is the bare executable, built privately by
+  `packaging/publish-windows-viewer.sh` (see [Packaging](../packaging/README.md#releases)).
+- A remembered size for a gateway's window.
