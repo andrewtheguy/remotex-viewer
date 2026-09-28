@@ -2,7 +2,8 @@
 //
 // Puts the host's HEVC decoder behind `VideoDecoder` for `hev1.`/`hvc1.` codecs, in the
 // page and in every worker the page starts, and leaves every other codec to the real
-// WebCodecs. The page itself is unchanged.
+// WebCodecs. The page itself is unchanged. It is version 1 of the interop protocol, and
+// only a document that states a version in `INTEROP` gets it (docs/interop.md).
 //
 // Data path:
 //   worker VideoDecoder.decode(chunk) -> MessagePort -> main thread
@@ -19,11 +20,22 @@
   }
   const MAGIC = "__hevcShimPort";
 
+  // The interop protocol versions this viewer speaks. A gateway's page states its own in
+  // `<meta name="remotex-viewer-interop">`; a document that states another, or none,
+  // keeps WebView2's own decoders, so its gateway sends it VP9. Read when asked rather
+  // than now: this runs before the document's head is parsed, and the page asks only
+  // from its scripts, which run after.
+  const INTEROP = ["1"];
+  const speaks = () =>
+    INTEROP.includes(
+      document.querySelector('meta[name="remotex-viewer-interop"]')?.getAttribute("content") ?? "",
+    );
+
   // --- The `VideoDecoder` both contexts install. Self-contained: serialized into workers.
-  function installDecoder(scope, openSession) {
+  function installDecoder(scope, openSession, speaks) {
     const Real = scope.VideoDecoder;
     const hevc = (codec) =>
-      typeof codec === "string" && /^(hev1|hvc1)\./.test(codec);
+      typeof codec === "string" && /^(hev1|hvc1)\./.test(codec) && speaks();
     const abort = () => new DOMException("Aborted", "AbortError");
 
     class VideoDecoder extends EventTarget {
@@ -206,7 +218,8 @@
     Object.defineProperty(scope, "__realVideoDecoder", { value: Real });
   }
 
-  // --- Inside a worker: sessions are opened on the main thread over a private port.
+  // --- Inside a worker: sessions are opened on the main thread over a private port. A
+  // worker gets the shim only from a document that speaks the protocol.
   function workerMain(magic, install) {
     let port = null;
     let nextId = 1;
@@ -246,22 +259,26 @@
         port.postMessage(message, transfer);
       }
     });
-    install(self, (callbacks) => {
-      const id = nextId++;
-      sessions.set(id, callbacks);
-      post({ t: "open", id });
-      return {
-        configure: (config) => post({ t: "configure", id, config }),
-        decode: (seq, data, ts, key) =>
-          post({ t: "decode", id, seq, data, ts, key }, [data.buffer]),
-        flush: () => post({ t: "flush", id }),
-        reset: () => post({ t: "reset", id }),
-        close: () => {
-          post({ t: "close", id });
-          sessions.delete(id);
-        },
-      };
-    });
+    install(
+      self,
+      (callbacks) => {
+        const id = nextId++;
+        sessions.set(id, callbacks);
+        post({ t: "open", id });
+        return {
+          configure: (config) => post({ t: "configure", id, config }),
+          decode: (seq, data, ts, key) =>
+            post({ t: "decode", id, seq, data, ts, key }, [data.buffer]),
+          flush: () => post({ t: "flush", id }),
+          reset: () => post({ t: "reset", id }),
+          close: () => {
+            post({ t: "close", id });
+            sessions.delete(id);
+          },
+        };
+      },
+      () => true,
+    );
   }
 
   const workerSource = `const MAGIC = ${JSON.stringify(MAGIC)};
@@ -533,11 +550,15 @@ workerMain(MAGIC, installDecoder);
 
   // A worker starts from a blob entry that imports the shim, then its own script, so
   // its `location` is the blob's: its own script's `import.meta.url` is unchanged, but
-  // a relative `fetch` from it would resolve against the blob.
+  // a relative `fetch` from it would resolve against the blob. A document that does not
+  // speak the protocol starts its workers as they are.
   const RealWorker = globalThis.Worker;
   function Worker(url, options) {
     if (!new.target) {
       throw new TypeError("Failed to construct 'Worker': Please use the 'new' operator");
+    }
+    if (!speaks()) {
+      return new RealWorker(url, options);
     }
     shimUrl ??= blobUrl(workerSource);
     const script = new URL(url, location.href).href;
@@ -554,7 +575,7 @@ workerMain(MAGIC, installDecoder);
   Worker.prototype = RealWorker.prototype;
   Object.defineProperty(globalThis, "Worker", { value: Worker, writable: true, configurable: true });
 
-  installDecoder(globalThis, openSession);
+  installDecoder(globalThis, openSession, speaks);
 
   Object.defineProperty(globalThis, "__hevcShim", {
     value: Object.freeze({

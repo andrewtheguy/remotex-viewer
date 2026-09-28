@@ -2,7 +2,9 @@
 //! Performance Mac's picture is HEVC 4:4:4.
 //!
 //! `hevc_shim.js` stands in for `VideoDecoder` for `hev1.`/`hvc1.` codecs, in the page
-//! and in every worker it starts, and leaves every other codec to WebCodecs. Access
+//! and in every worker it starts, and leaves every other codec to WebCodecs. It is
+//! version 1 of the interop protocol, in a document that states a version it speaks
+//! (docs/interop.md). Access
 //! units reach this process through a shared ring the page writes; pictures go back in
 //! a few read-only shared slots the page builds `VideoFrame`s from. The Mac's AAC-ELD
 //! needs nothing here, since WebView2's own `AudioDecoder` takes it.
