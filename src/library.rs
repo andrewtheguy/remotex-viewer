@@ -36,7 +36,7 @@ impl Library {
         devtools: bool,
         left: Option<Placement>,
     ) -> Result<Self> {
-        let window = WindowBuilder::new().with_title("remotex").with_visible(false).build(target)?;
+        let window = os::with_icon(WindowBuilder::new()).with_title("remotex").with_visible(false).build(target)?;
         place(&window, left);
         let ipc = proxy.clone();
         let builder = WebViewBuilder::new_with_web_context(context)

@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use tao::dpi::{PhysicalPosition, PhysicalSize};
 use tao::monitor::MonitorHandle;
-use tao::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
-use tao::window::Window;
+use tao::platform::windows::{IconExtWindows, MonitorHandleExtWindows, WindowBuilderExtWindows, WindowExtWindows};
+use tao::window::{Icon, Window, WindowBuilder};
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFO};
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -15,8 +15,8 @@ use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, AppendMenuW, CallNextHookEx, CreateWindowExW, DefWindowProcW, FindWindowExW, GetForegroundWindow,
-    GetSystemMenu, GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
-    LLKHF_INJECTED, MF_SEPARATOR, MF_STRING, RegisterClassW, SendMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
+    GetSystemMenu, GetSystemMetrics, GetWindowThreadProcessId, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED,
+    LLKHF_INJECTED, MF_SEPARATOR, MF_STRING, RegisterClassW, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX, SendMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
     WM_COPYDATA, WM_KEYDOWN, WM_NCDESTROY, WM_SYSCOMMAND, WM_SYSKEYDOWN, WNDCLASSW,
 };
 use windows_core::{PCWSTR, w};
@@ -246,4 +246,16 @@ unsafe extern "system" fn system_command(
     }
     // SAFETY: everything else, as received, to the next procedure in the chain.
     unsafe { DefSubclassProc(window, message, wparam, lparam) }
+}
+
+/// The executable's icon (`build.rs`), at the title bar's size and at the taskbar's.
+pub fn with_icon(builder: WindowBuilder) -> WindowBuilder {
+    let icon = |metric: SYSTEM_METRICS_INDEX| {
+        // SAFETY: no preconditions.
+        let side = unsafe { GetSystemMetrics(metric) }.max(1) as u32;
+        Icon::from_resource(1, Some(PhysicalSize::new(side, side)))
+            .inspect_err(|e| eprintln!("remotex-viewer: no icon: {e}"))
+            .ok()
+    };
+    builder.with_window_icon(icon(SM_CXSMICON)).with_taskbar_icon(icon(SM_CXICON))
 }

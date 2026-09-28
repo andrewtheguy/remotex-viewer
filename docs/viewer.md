@@ -161,10 +161,16 @@ cargo build -p remotex-viewer --release
 
 The WebView2 runtime ships with Windows 11 and current Windows 10.
 
+The icon is `icons/icon.svg`, a display. `icons/make-icon.sh` renders it into
+`icons/remotex-viewer.ico`, which is committed, so a build needs no SVG rasterizer;
+`build.rs` embeds it in the Windows executable and every window shows it. Edit the
+SVG, run the script, commit both.
+
 ## Not yet
 
 - macOS: the key hook (a `CGEventTap`) and the work area (`NSScreen.visibleFrame`) are
   stubs.
 - macOS: a later launch reaches the running viewer as a reopen, which it does not
   take yet, and **Library** belongs in the app's menu bar, which it has no item in yet.
+- macOS: the icon, which is an app bundle's (an `.icns` from the same SVG).
 - Packaging, and a remembered size for a gateway's window.

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tao::dpi::{PhysicalPosition, PhysicalSize};
 use tao::monitor::MonitorHandle;
-use tao::window::Window;
+use tao::window::{Window, WindowBuilder};
 
 use super::{KeySink, LaunchSink, LibrarySink};
 
@@ -38,4 +38,9 @@ impl Instance {
 /// Not yet: on macOS this is a **Library** item in the app's menu bar.
 pub fn library_item(_window: &Window, _sink: LibrarySink) -> Result<()> {
     Ok(())
+}
+
+/// A Mac app's icon is its bundle's, which the viewer does not have yet.
+pub fn with_icon(builder: WindowBuilder) -> WindowBuilder {
+    builder
 }

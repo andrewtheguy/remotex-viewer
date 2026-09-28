@@ -40,7 +40,7 @@ impl Gateway {
         cascade: usize,
         devtools: bool,
     ) -> Result<Self> {
-        let window = WindowBuilder::new().with_title("remotex").with_visible(false).build(target)?;
+        let window = os::with_icon(WindowBuilder::new()).with_title("remotex").with_visible(false).build(target)?;
         place(&window, cascade);
         let id = window.id();
         let (ipc, titles) = (proxy.clone(), proxy.clone());

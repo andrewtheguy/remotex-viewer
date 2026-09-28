@@ -9,6 +9,7 @@
 //!   for to the one that is and say to stop.
 //! - `library_item`: a way to the library from a gateway window that takes nothing
 //!   from its page.
+//! - `with_icon`: the app's icon on a window about to be built.
 
 #[cfg(target_os = "macos")]
 mod mac;
