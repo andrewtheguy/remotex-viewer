@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::os::raw::c_int;
-use std::sync::mpsc;
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, mpsc};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -32,17 +32,54 @@ pub struct Session {
 
 impl Session {
     /// A decoder reading `document`'s ring, which it says it no longer does as it ends.
-    pub fn spawn(id: u32, document: u64, proxy: MediaProxy) -> Self {
+    pub fn spawn(id: u32, document: u64, proxy: MediaProxy, gate: Gate) -> Self {
         let (commands, command_rx) = mpsc::channel();
         let (frees, free_rx) = mpsc::channel();
+        let host = Host { proxy, document, gate };
         std::thread::Builder::new()
             .name(format!("hevc-{id}"))
             .spawn(move || {
-                run(id, &proxy, &command_rx, &free_rx);
-                let _ = proxy.send(MediaEvent::Exited { document });
+                run(id, &host, &command_rx, &free_rx);
+                let _ = host.proxy.send(MediaEvent::Exited { document });
             })
             .expect("spawn a decoder thread");
         Self { commands, frees }
+    }
+}
+
+/// Whether a window's shared buffers are still there. A decoder thread reads a ring or
+/// writes a slot only while it holds the gate open, and the window closes it before it
+/// lets the buffers go: closing waits for whoever holds it, and no one opens it again.
+#[derive(Clone)]
+pub struct Gate(Arc<RwLock<bool>>);
+
+impl Gate {
+    pub fn new() -> Self {
+        Self(Arc::new(RwLock::new(true)))
+    }
+
+    /// Held open until the guard is dropped; `None` once the gate is closed.
+    fn enter(&self) -> Option<RwLockReadGuard<'_, bool>> {
+        let open = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        let is_open = *open;
+        is_open.then_some(open)
+    }
+
+    pub fn close(&self) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = false;
+    }
+}
+
+/// A decoder thread's way back to its window: for the document it was started for.
+struct Host {
+    proxy: MediaProxy,
+    document: u64,
+    gate: Gate,
+}
+
+impl Host {
+    fn post(&self, message: Value) {
+        let _ = self.proxy.send(MediaEvent::Post { document: self.document, message });
     }
 }
 
@@ -52,53 +89,54 @@ struct Pool {
     free: VecDeque<u32>,
 }
 
-fn post(proxy: &MediaProxy, message: Value) {
-    let _ = proxy.send(MediaEvent::Post(message.to_string()));
-}
-
-fn run(id: u32, proxy: &MediaProxy, commands: &mpsc::Receiver<Cmd>, frees: &mpsc::Receiver<u32>) {
+fn run(id: u32, host: &Host, commands: &mpsc::Receiver<Cmd>, frees: &mpsc::Receiver<u32>) {
     let mut decoder: Option<Decoder> = None;
     let mut pool: Option<Pool> = None;
     while let Ok(cmd) = commands.recv() {
         match cmd {
             Cmd::Configure => match Decoder::new() {
                 Ok(d) => decoder = Some(d),
-                Err(e) => post(proxy, json!({"t": "error", "id": id, "message": format!("{e:#}")})),
+                Err(e) => host.post(json!({"t": "error", "id": id, "message": format!("{e:#}")})),
             },
             Cmd::Decode { seq, at, len, ts } => {
                 let Some(d) = decoder.as_mut() else {
-                    post(proxy, json!({"t": "done", "id": id, "seq": seq}));
+                    host.post(json!({"t": "done", "id": id, "seq": seq}));
                     continue;
                 };
-                // SAFETY: the page wrote `len` bytes at `at` in the ring and does not
-                // reuse them until this unit's `done` is posted below.
-                let unit = unsafe { std::slice::from_raw_parts(at as *const u8, len) };
                 let started = Instant::now();
-                match d.decode(unit, ts) {
+                let decoded = {
+                    let Some(_open) = host.gate.enter() else { break };
+                    // SAFETY: the page wrote `len` bytes at `at` in the ring and does not
+                    // reuse them until this unit's `done` is posted below; the ring is
+                    // there while the gate is open.
+                    let unit = unsafe { std::slice::from_raw_parts(at as *const u8, len) };
+                    d.decode(unit, ts)
+                };
+                match decoded {
                     Ok(got) => {
                         let decode_us = started.elapsed().as_micros() as u64;
                         let mut message = json!({"t": "done", "id": id, "seq": seq, "decodeUs": decode_us});
                         if got {
-                            match deliver(id, d, &mut pool, proxy, frees) {
+                            match deliver(id, d, &mut pool, host, frees) {
                                 Ok(Some((frame, copy_us))) => {
                                     message["frame"] = frame;
                                     message["copyUs"] = json!(copy_us);
                                 }
                                 Ok(None) => {
-                                    post(proxy, message);
+                                    host.post(message);
                                     break;
                                 }
                                 Err(e) => {
-                                    post(proxy, json!({"t": "error", "id": id, "message": format!("{e:#}")}));
+                                    host.post(json!({"t": "error", "id": id, "message": format!("{e:#}")}));
                                     decoder = None;
                                 }
                             }
                         }
-                        post(proxy, message);
+                        host.post(message);
                     }
                     Err(e) => {
-                        post(proxy, json!({"t": "done", "id": id, "seq": seq}));
-                        post(proxy, json!({"t": "error", "id": id, "message": format!("{e:#}")}));
+                        host.post(json!({"t": "done", "id": id, "seq": seq}));
+                        host.post(json!({"t": "error", "id": id, "message": format!("{e:#}")}));
                         decoder = None;
                     }
                 }
@@ -107,7 +145,7 @@ fn run(id: u32, proxy: &MediaProxy, commands: &mpsc::Receiver<Cmd>, frees: &mpsc
                 if let Some(d) = decoder.as_mut() {
                     d.drain();
                 }
-                post(proxy, json!({"t": "flushed", "id": id}));
+                host.post(json!({"t": "flushed", "id": id}));
             }
             Cmd::Reset => {
                 if let Some(d) = decoder.as_mut() {
@@ -119,17 +157,18 @@ fn run(id: u32, proxy: &MediaProxy, commands: &mpsc::Receiver<Cmd>, frees: &mpsc
     }
     if let Some(pool) = pool {
         for (slot, _) in pool.slots {
-            let _ = proxy.send(MediaEvent::Retire(slot));
+            let _ = host.proxy.send(MediaEvent::Retire(slot));
         }
     }
 }
 
-/// Copy the decoder's picture into a free slot. `None` when the page has gone away.
+/// Copy the decoder's picture into a free slot. `None` when the page or its window
+/// has gone away.
 fn deliver(
     id: u32,
     d: &Decoder,
     pool: &mut Option<Pool>,
-    proxy: &MediaProxy,
+    host: &Host,
     frees: &mpsc::Receiver<u32>,
 ) -> Result<Option<(Value, u64)>> {
     // SAFETY: `got` said the frame holds a picture.
@@ -150,11 +189,11 @@ fn deliver(
     if pool.as_ref().is_none_or(|p| p.bytes != bytes) {
         if let Some(old) = pool.take() {
             for (slot, _) in old.slots {
-                let _ = proxy.send(MediaEvent::Retire(slot));
+                let _ = host.proxy.send(MediaEvent::Retire(slot));
             }
         }
         let (reply, answer) = mpsc::channel();
-        proxy.send(MediaEvent::NeedSlots { session: id, bytes, count: SLOTS, reply })?;
+        host.proxy.send(MediaEvent::NeedSlots { document: host.document, session: id, bytes, count: SLOTS, reply })?;
         let slots = answer.recv().context("the host did not create picture slots")??;
         *pool = Some(Pool { bytes, free: slots.iter().map(|(s, _)| *s).collect(), slots });
     }
@@ -166,13 +205,18 @@ fn deliver(
         match frees.recv() {
             Ok(slot) if pool.slots.iter().any(|(s, _)| *s == slot) => pool.free.push_back(slot),
             Ok(stale) => {
-                let _ = proxy.send(MediaEvent::Retire(stale));
+                let _ = host.proxy.send(MediaEvent::Retire(stale));
             }
             Err(_) => return Ok(None),
         }
     };
     let base = pool.slots.iter().find(|(s, _)| *s == slot).expect("a slot of this pool").1 as *mut u8;
 
+    // Not held while waiting above: the window answers `NeedSlots` on the thread that
+    // would close the gate.
+    let Some(_open) = host.gate.enter() else {
+        return Ok(None);
+    };
     let started = Instant::now();
     let planes = [(w, h), (cw, ch), (cw, ch)];
     let mut at = 0usize;

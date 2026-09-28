@@ -1,4 +1,4 @@
-// Injected into every document (AddScriptToExecuteOnDocumentCreated, main frame only).
+// Injected into every document at the gateway's origin (main frame only).
 //
 // Puts the host's HEVC decoder behind `VideoDecoder` for `hev1.`/`hvc1.` codecs, in the
 // page and in every worker the page starts, and leaves every other codec to the real
@@ -283,6 +283,9 @@ workerMain(MAGIC, installDecoder);
   const sessions = new Map(); // id -> {callbacks, lseqOf: Map(gseq -> local seq)}
   let nextSession = 1;
   let gseq = 0;
+  // This document, in everything the host sends it: session and sequence numbers start
+  // again in every document, and the last one's decoders may still be answering.
+  const DOC = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16)).join("");
 
   const stats = {
     frames: 0,
@@ -431,18 +434,20 @@ workerMain(MAGIC, installDecoder);
 
   webview.addEventListener("message", (event) => {
     const m = event.data;
-    if (m && typeof m === "object" && typeof m.t === "string") {
+    if (m && typeof m === "object" && typeof m.t === "string" && m.doc === DOC) {
       onHost(m);
     }
   });
   webview.addEventListener("sharedbufferreceived", (event) => {
     const meta = event.additionalData;
     const buffer = event.getBuffer();
-    if (meta?.kind === "in") {
+    if (meta?.doc !== DOC) {
+      webview.releaseBuffer(buffer);
+    } else if (meta.kind === "in") {
       ring = buffer;
       ringBytes = new Uint8Array(buffer);
       pump();
-    } else if (meta?.kind === "slot") {
+    } else if (meta.kind === "slot") {
       slots.set(meta.slot, buffer);
     }
   });
@@ -558,5 +563,5 @@ workerMain(MAGIC, installDecoder);
     }),
   });
 
-  send({ t: "hello" });
+  send({ t: "hello", doc: DOC });
 })();

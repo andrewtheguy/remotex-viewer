@@ -44,18 +44,26 @@ impl Gateway {
         place(&window, cascade);
         let id = window.id();
         let (ipc, titles) = (proxy.clone(), proxy.clone());
+        // The shell is the gateway's page's alone: a document of another origin, one a
+        // link or a redirect took the window to, gets neither it nor a hearing.
+        let origin = url::Url::parse(url).context("the gateway's URL")?.origin();
+        let page_origin = origin.ascii_serialization();
+        let from_gateway = move |source: &str| url::Url::parse(source).is_ok_and(|s| s.origin() == origin);
         let builder = WebViewBuilder::new_with_web_context(context)
             .with_url("about:blank")
-            .with_initialization_script_for_main_only(SHELL, true)
+            .with_initialization_script_for_main_only(only_at(&page_origin, SHELL), true)
             .with_ipc_handler(move |request| {
-                let _ = ipc.send_event(UserEvent::Page(id, request.into_body()));
+                if from_gateway(&request.uri().to_string()) {
+                    let _ = ipc.send_event(UserEvent::Page(id, request.into_body()));
+                }
             })
             .with_document_title_changed_handler(move |title| {
                 let _ = titles.send_event(UserEvent::Title(id, title));
             })
             .with_devtools(devtools);
         #[cfg(windows)]
-        let builder = crate::webview2::shim(crate::webview2::configure(builder, devtools));
+        let builder = crate::webview2::configure(builder, devtools)
+            .with_initialization_script_for_main_only(only_at(&page_origin, crate::webview2::SHIM), true);
         let webview = builder.build(&window)?;
         let wanted = proxy.clone();
         let item = os::library_item(
@@ -163,6 +171,11 @@ impl Gateway {
         self.webview.evaluate_script(&format!("globalThis.__remotexShell?.receive({message})"))?;
         Ok(())
     }
+}
+
+/// `script`, run only in a document at `origin`.
+fn only_at(origin: &str, script: &str) -> String {
+    format!("if (location.origin === {}) {{\n{script}\n}}\n", json!(origin))
 }
 
 /// What the window adds around its page, in physical pixels.

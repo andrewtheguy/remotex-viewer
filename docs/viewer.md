@@ -75,8 +75,10 @@ configuration. The same crates run on macOS, where the web view is WKWebView.
 
 ### What the shell does
 
-`src/shell.js` is injected into every document of a gateway window, on every OS;
-`src/gateway.rs` answers it. The keyboard is held for one window at a time, the one in
+`src/shell.js` is injected into every document of a gateway window that is at the
+gateway's origin, on every OS; `src/gateway.rs` answers it, and nothing from any other
+origin: a page a link or a redirect leads to is a plain page, with no clipboard of the
+shell's and no say over the window. The keyboard is held for one window at a time, the one in
 front with its remote surface focused.
 
 | The page does | A browser window | The viewer |

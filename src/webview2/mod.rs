@@ -6,6 +6,10 @@
 //! units reach this process through a shared ring the page writes; pictures go back in
 //! a few read-only shared slots the page builds `VideoFrame`s from. The Mac's AAC-ELD
 //! needs nothing here, since WebView2's own `AudioDecoder` takes it.
+//!
+//! Session and sequence numbers start again in every document, so everything the host
+//! sends names the document it is for, by the token the shim chose in its `hello`, and
+//! everything a decoder thread asks is dropped once its document has gone.
 
 mod hevc;
 
@@ -20,9 +24,9 @@ use windows_core::{HSTRING, Interface};
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
 use crate::UserEvent;
-use hevc::{Cmd, Session};
+use hevc::{Cmd, Gate, Session};
 
-const SHIM: &str = include_str!("hevc_shim.js");
+pub const SHIM: &str = include_str!("hevc_shim.js");
 const RING_BYTES: usize = 32 << 20;
 
 /// WebView2's part of every web view, the library's included: no browser chords of its
@@ -43,17 +47,14 @@ pub fn configure(builder: WebViewBuilder<'_>, devtools: bool) -> WebViewBuilder<
         )
 }
 
-/// A gateway's web view: the HEVC shim in its page.
-pub fn shim(builder: WebViewBuilder<'_>) -> WebViewBuilder<'_> {
-    builder.with_initialization_script_for_main_only(SHIM, true)
-}
-
-/// What a decoder thread asks of its window's web view, on the UI thread.
+/// What a decoder thread asks of its window's web view, on the UI thread. `document`
+/// is the one the thread was started for.
 pub enum MediaEvent {
-    /// A JSON message for the shim.
-    Post(String),
+    /// A message for the shim.
+    Post { document: u64, message: Value },
     /// A decoder needs `count` shared slots of `bytes` each.
     NeedSlots {
+        document: u64,
         session: u32,
         bytes: usize,
         count: usize,
@@ -91,6 +92,7 @@ struct Ring {
 
 struct Slot {
     buffer: ICoreWebView2SharedBuffer,
+    document: u64,
     session: u32,
 }
 
@@ -99,13 +101,16 @@ pub struct Media {
     core: ICoreWebView2,
     core17: ICoreWebView2_17,
     env12: ICoreWebView2Environment12,
-    /// The current document, counted from the first.
+    /// The current document, counted from the first, and the token its shim chose.
     document: u64,
+    token: String,
     /// Its ring, and each earlier document's while a decoder thread may still read it.
     rings: HashMap<u64, Ring>,
     sessions: HashMap<u32, Session>,
     slots: HashMap<u32, Slot>,
     next_slot: u32,
+    /// Held open by a decoder thread while it reads a ring or writes a slot.
+    gate: Gate,
 }
 
 impl Media {
@@ -118,19 +123,29 @@ impl Media {
             env12: env.cast().context("WebView2 runtime without ICoreWebView2Environment12")?,
             core,
             document: 0,
+            token: String::new(),
             rings: HashMap::new(),
             sessions: HashMap::new(),
             slots: HashMap::new(),
             next_slot: 1,
+            gate: Gate::new(),
         })
     }
 
     pub fn event(&mut self, event: MediaEvent) -> Result<()> {
         match event {
-            // SAFETY: a COM call on the UI thread.
-            MediaEvent::Post(json) => unsafe { self.core.PostWebMessageAsJson(&HSTRING::from(json))? },
-            MediaEvent::NeedSlots { session, bytes, count, reply } => {
-                let _ = reply.send(self.make_slots(session, bytes, count));
+            MediaEvent::Post { document, message } => {
+                if document == self.document {
+                    self.post(message)?;
+                }
+            }
+            MediaEvent::NeedSlots { document, session, bytes, count, reply } => {
+                let slots = if document == self.document {
+                    self.make_slots(session, bytes, count)
+                } else {
+                    Err(anyhow::anyhow!("the decoder's document has gone"))
+                };
+                let _ = reply.send(slots);
             }
             MediaEvent::Retire(slot) => self.retire(slot)?,
             MediaEvent::Exited { document } => {
@@ -146,13 +161,13 @@ impl Media {
     pub fn page(&mut self, m: &Value) -> Result<()> {
         let id = m["id"].as_u64().unwrap_or(0) as u32;
         match m["t"].as_str().unwrap_or("") {
-            "hello" => self.hello()?,
+            "hello" => self.hello(m["doc"].as_str().context("a hello without its document")?)?,
             "configure" => {
                 let session = self.sessions.entry(id).or_insert_with(|| {
                     if let Some(ring) = self.rings.get_mut(&self.document) {
                         ring.decoders += 1;
                     }
-                    Session::spawn(id, self.document, self.proxy.clone())
+                    Session::spawn(id, self.document, self.proxy.clone(), self.gate.clone())
                 });
                 let _ = session.commands.send(Cmd::Configure);
             }
@@ -193,7 +208,7 @@ impl Media {
             }
             "free" => {
                 let slot = m["slot"].as_u64().context("slot")? as u32;
-                let owner = self.slots.get(&slot).map(|s| s.session);
+                let owner = self.slots.get(&slot).filter(|s| s.document == self.document).map(|s| s.session);
                 match owner.and_then(|session| self.sessions.get(&session)) {
                     Some(session) => {
                         let _ = session.frees.send(slot);
@@ -207,13 +222,14 @@ impl Media {
         Ok(())
     }
 
-    /// A new document: forget the old one's decoders and give it a ring. The old ring
-    /// is kept until the last of them has ended.
-    fn hello(&mut self) -> Result<()> {
+    /// A new document, `token` in its messages: forget the old one's decoders and give
+    /// it a ring. The old ring is kept until the last of them has ended.
+    fn hello(&mut self, token: &str) -> Result<()> {
         for (_, session) in self.sessions.drain() {
             let _ = session.commands.send(Cmd::Close);
         }
         self.document += 1;
+        token.clone_into(&mut self.token);
         self.close_rings()?;
         // SAFETY: COM calls on the UI thread; the buffer outlives every pointer taken
         // from it (it is kept in `rings` until no decoder thread reads it).
@@ -224,7 +240,7 @@ impl Media {
             self.core17.PostSharedBufferToScript(
                 &ring,
                 COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_WRITE,
-                &HSTRING::from(json!({"kind": "in"}).to_string()),
+                &HSTRING::from(json!({"kind": "in", "doc": self.token}).to_string()),
             )?;
             self.rings.insert(self.document, Ring { buffer: ring, base: base as usize, decoders: 0 });
         }
@@ -257,9 +273,11 @@ impl Media {
                 self.core17.PostSharedBufferToScript(
                     &buffer,
                     COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_ONLY,
-                    &HSTRING::from(json!({"kind": "slot", "slot": slot, "bytes": bytes}).to_string()),
+                    &HSTRING::from(
+                        json!({"kind": "slot", "doc": self.token, "slot": slot, "bytes": bytes}).to_string(),
+                    ),
                 )?;
-                self.slots.insert(slot, Slot { buffer, session });
+                self.slots.insert(slot, Slot { buffer, document: self.document, session });
                 made.push((slot, base as usize));
             }
         }
@@ -275,9 +293,19 @@ impl Media {
         Ok(())
     }
 
-    fn post(&self, message: Value) -> Result<()> {
+    /// `message`, for the current document.
+    fn post(&self, mut message: Value) -> Result<()> {
+        message["doc"] = json!(self.token);
         // SAFETY: a COM call on the UI thread.
         unsafe { self.core.PostWebMessageAsJson(&HSTRING::from(message.to_string()))? };
         Ok(())
+    }
+}
+
+impl Drop for Media {
+    /// Waits out any decoder thread reading a ring or writing a slot, and keeps every
+    /// one from starting again, before the buffers go.
+    fn drop(&mut self) {
+        self.gate.close();
     }
 }
