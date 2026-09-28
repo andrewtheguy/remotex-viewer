@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  remotex-viewer's Windows package: the executable under %ProgramFiles%\remotex-viewer, a
+  Start menu shortcut to it, and nothing else. What the viewer keeps — its saved gateways and
+  its web view's profile — lives in %LOCALAPPDATA%\remotex-viewer, which is each user's and
+  which neither an upgrade nor a removal touches.
+
+  The Visual C++ runtime goes beside the executable: the HEVC decoder it links is built
+  against the DLL C runtime, so the viewer cannot carry it statically, and the package must
+  not depend on a machine having the redistributable installed. It is the toolset's own copy
+  from VC\Redist, which Microsoft permits applications to deploy locally.
+
+  Built by packaging/build-windows-viewer.ps1 with WiX 5 (`wix build`), which defines
+    Version: the viewer's version (an MSI version is x.y.z)
+    Stage:   remotex-viewer.exe with vcruntime140.dll and vcruntime140_1.dll
+    Icon:    the viewer's .ico, for Apps & features and the shortcut
+  The UpgradeCode is what makes a newer MSI replace an installed older one instead of sitting
+  beside it; it must never change, and it is not the gateway's: the two are separate products.
+
+  The UI is WiX's stock InstallDir wizard with its licence page skipped, as the gateway's
+  package does (remotex.wxs).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="remotex viewer" Manufacturer="andrewtheguy" Version="$(var.Version)"
+           UpgradeCode="5591f2c4-be3d-40f3-ae37-e7f6ca79b839" Scope="perMachine">
+    <SummaryInformation Description="remotex gateways' pages in windows of their own" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of remotex viewer is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="RemotexViewerIcon" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="RemotexViewerIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/andrewtheguy/remotex" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="99" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="99" />
+    </UI>
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="Open remotex viewer from the Start menu, and add a gateway by its URL." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="remotex-viewer" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Viewer" Directory="INSTALLFOLDER">
+      <Component>
+        <File Id="RemotexViewerExe" Source="$(var.Stage)\remotex-viewer.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="remotex viewer"
+                    Description="Open a remotex gateway in a window of its own"
+                    WorkingDirectory="INSTALLFOLDER" Icon="RemotexViewerIcon" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\vcruntime140.dll" />
+      </Component>
+      <Component>
+        <File Source="$(var.Stage)\vcruntime140_1.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="Viewer" />
+    </Feature>
+  </Package>
+</Wix>

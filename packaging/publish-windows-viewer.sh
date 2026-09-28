@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build remotex-viewer for Windows from a release tag and attach it to a release of the
-# same name in the operator's private repository, andrewtheguy/remotex-viewer-releases.
+# Build remotex-viewer's Windows installer from a release tag and attach it to a release
+# of the same name in the operator's private repository, andrewtheguy/remotex-viewer-releases.
 #
 # The release workflow never builds the viewer: on Windows it links FFmpeg's HEVC
 # decoder, whose licence keeps it out of public release artifacts, as it keeps the
@@ -33,7 +33,7 @@ hevc_archives=andrewtheguy/libavcodec-hevc-prebuilt-archives
 windows=windows-ci-build
 stage='C:\ci-workspaces\remotex-viewer-release'
 stage_fwd='C:/ci-workspaces/remotex-viewer-release'
-built='C:/ci-workspaces/cargo-target-viewer-release/release/remotex-viewer.exe'
+built='C:/ci-workspaces/remotex-viewer-release/dist/remotex-viewer-windows-x86_64.msi'
 
 [ $# -eq 1 ] && [ "${1#-}" = "$1" ] || { echo "usage: $0 TAG" >&2; exit 2; }
 tag="$1"
@@ -88,19 +88,19 @@ git archive "$commit" \
   | ssh "$windows" "tar -xf - -C ${stage_fwd}/src"
 ssh "$windows" "tar -xzf - -C ${stage_fwd}/hevc" < "$archive"
 
-echo ">> building remotex-viewer ${version}"
+echo ">> building and checking the remotex-viewer ${version} installer"
 ssh "$windows" "pwsh -NoLogo -File ${stage}\\src\\packaging\\build-windows-viewer.ps1 -Root ${stage}"
 
-exe="remotex-viewer-${version}-windows-x86_64.exe"
-scp -q "${windows}:${built}" "$out/$exe"
-(cd "$out" && sha256sum "$exe" > SHA256SUMS)
+msi="remotex-viewer-${version}-windows-x86_64.msi"
+scp -q "${windows}:${built}" "$out/$msi"
+(cd "$out" && sha256sum "$msi" > SHA256SUMS)
 
 echo ">> publishing ${releases} ${tag}"
 gh release create "$tag" --repo "$releases" --title "remotex-viewer ${version}" --notes "$(cat <<EOF
-remotex-viewer ${version} for Windows x86-64, built from andrewtheguy/remotex ${tag} (${commit}).
+remotex-viewer ${version}'s installer for Windows x86-64, built from andrewtheguy/remotex ${tag} (${commit}).
 
-It links FFmpeg ${ffmpeg}'s libavcodec (LGPL-2.1-or-later) statically, from ${hevc_archives} ${pin}. It needs the WebView2 runtime, which ships with Windows 11 and current Windows 10, and the Visual C++ runtime (VCRUNTIME140).
+The installer puts remotex viewer under Program Files with a Start menu shortcut, and the Visual C++ runtime beside it. The viewer links FFmpeg ${ffmpeg}'s libavcodec (LGPL-2.1-or-later) statically, from ${hevc_archives} ${pin}, and needs the WebView2 runtime, which ships with Windows 11 and current Windows 10.
 EOF
-)" "$out/$exe" "$out/SHA256SUMS"
+)" "$out/$msi" "$out/SHA256SUMS"
 
 echo ">> published ${releases} ${tag}"
