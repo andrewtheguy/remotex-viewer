@@ -11,9 +11,8 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use avcodec_hevc_sys::*;
 use serde_json::{Value, json};
-use tao::event_loop::EventLoopProxy;
 
-use crate::UserEvent;
+use super::{MediaEvent, MediaProxy};
 
 /// How many pictures the page may hold between the host's copy and its own.
 const SLOTS: usize = 3;
@@ -32,7 +31,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn spawn(id: u32, proxy: EventLoopProxy<UserEvent>) -> Self {
+    pub fn spawn(id: u32, proxy: MediaProxy) -> Self {
         let (commands, command_rx) = mpsc::channel();
         let (frees, free_rx) = mpsc::channel();
         std::thread::Builder::new()
@@ -49,11 +48,11 @@ struct Pool {
     free: VecDeque<u32>,
 }
 
-fn post(proxy: &EventLoopProxy<UserEvent>, message: Value) {
-    let _ = proxy.send_event(UserEvent::Post(message.to_string()));
+fn post(proxy: &MediaProxy, message: Value) {
+    let _ = proxy.send(MediaEvent::Post(message.to_string()));
 }
 
-fn run(id: u32, proxy: &EventLoopProxy<UserEvent>, commands: &mpsc::Receiver<Cmd>, frees: &mpsc::Receiver<u32>) {
+fn run(id: u32, proxy: &MediaProxy, commands: &mpsc::Receiver<Cmd>, frees: &mpsc::Receiver<u32>) {
     let mut decoder: Option<Decoder> = None;
     let mut pool: Option<Pool> = None;
     while let Ok(cmd) = commands.recv() {
@@ -113,7 +112,7 @@ fn run(id: u32, proxy: &EventLoopProxy<UserEvent>, commands: &mpsc::Receiver<Cmd
     }
     if let Some(pool) = pool {
         for (slot, _) in pool.slots {
-            let _ = proxy.send_event(UserEvent::Retire(slot));
+            let _ = proxy.send(MediaEvent::Retire(slot));
         }
     }
 }
@@ -123,7 +122,7 @@ fn deliver(
     id: u32,
     d: &Decoder,
     pool: &mut Option<Pool>,
-    proxy: &EventLoopProxy<UserEvent>,
+    proxy: &MediaProxy,
     frees: &mpsc::Receiver<u32>,
 ) -> Result<Option<(Value, u64)>> {
     // SAFETY: `got` said the frame holds a picture.
@@ -144,13 +143,11 @@ fn deliver(
     if pool.as_ref().is_none_or(|p| p.bytes != bytes) {
         if let Some(old) = pool.take() {
             for (slot, _) in old.slots {
-                let _ = proxy.send_event(UserEvent::Retire(slot));
+                let _ = proxy.send(MediaEvent::Retire(slot));
             }
         }
         let (reply, answer) = mpsc::channel();
-        proxy
-            .send_event(UserEvent::NeedSlots { session: id, bytes, count: SLOTS, reply })
-            .map_err(|_| anyhow::anyhow!("the event loop has gone"))?;
+        proxy.send(MediaEvent::NeedSlots { session: id, bytes, count: SLOTS, reply })?;
         let slots = answer.recv().context("the host did not create picture slots")??;
         *pool = Some(Pool { bytes, free: slots.iter().map(|(s, _)| *s).collect(), slots });
     }
@@ -162,7 +159,7 @@ fn deliver(
         match frees.recv() {
             Ok(slot) if pool.slots.iter().any(|(s, _)| *s == slot) => pool.free.push_back(slot),
             Ok(stale) => {
-                let _ = proxy.send_event(UserEvent::Retire(stale));
+                let _ = proxy.send(MediaEvent::Retire(stale));
             }
             Err(_) => return Ok(None),
         }

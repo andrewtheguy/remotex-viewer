@@ -1,8 +1,9 @@
 use anyhow::Result;
 use tao::dpi::{PhysicalPosition, PhysicalSize};
+use tao::monitor::MonitorHandle;
 use tao::window::Window;
 
-use super::KeySink;
+use super::{KeySink, LaunchSink};
 
 pub struct KeyHook;
 
@@ -13,6 +14,20 @@ pub fn hook_keys(_window: &Window, _sink: KeySink) -> Result<KeyHook> {
 }
 
 /// Not yet (`NSScreen.visibleFrame`); the monitor's whole size stands in.
-pub fn work_area(_window: &Window) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
-    None
+pub fn work_area(monitor: &MonitorHandle) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+    (monitor.position(), monitor.size())
+}
+
+pub struct Instance;
+
+/// Launch Services already runs one copy of an app bundle; a later launch reaches it as
+/// a reopen, which the viewer does not take yet.
+pub fn claim_instance(_launch: &str) -> Result<Option<Instance>> {
+    Ok(Some(Instance))
+}
+
+impl Instance {
+    pub fn listen(&self, _sink: LaunchSink) -> Result<()> {
+        Ok(())
+    }
 }

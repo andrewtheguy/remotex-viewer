@@ -2,17 +2,19 @@ use std::sync::mpsc;
 
 use anyhow::{Context, Result};
 use tao::event_loop::EventLoopProxy;
+use tao::window::WindowId;
 
 use crate::UserEvent;
 
 enum Request {
-    Read(u64),
-    Write(u64, String),
+    Read(WindowId, u64),
+    Write(WindowId, u64, String),
 }
 
 /// The system clipboard, behind the page's `navigator.clipboard`: read without a
 /// prompt, written without focus, on a thread of its own so an application holding
-/// the clipboard open never stalls the window.
+/// the clipboard open never stalls a window. One for every gateway window, each
+/// request answered to the window it came from.
 pub struct Clipboard(mpsc::Sender<Request>);
 
 impl Clipboard {
@@ -23,11 +25,11 @@ impl Clipboard {
             .spawn(move || {
                 let mut board = None;
                 for request in rx {
-                    let (id, result) = match request {
-                        Request::Read(id) => (id, with(&mut board, |b| Ok(b.get_text()?))),
-                        Request::Write(id, text) => (id, with(&mut board, |b| Ok(b.set_text(text).map(|()| String::new())?))),
+                    let (window, id, result) = match request {
+                        Request::Read(window, id) => (window, id, with(&mut board, |b| Ok(b.get_text()?))),
+                        Request::Write(window, id, text) => (window, id, with(&mut board, |b| Ok(b.set_text(text).map(|()| String::new())?))),
                     };
-                    if proxy.send_event(UserEvent::Clipboard { id, result }).is_err() {
+                    if proxy.send_event(UserEvent::Clipboard { window, id, result }).is_err() {
                         break;
                     }
                 }
@@ -36,12 +38,12 @@ impl Clipboard {
         Self(tx)
     }
 
-    pub fn read(&self, id: u64) {
-        let _ = self.0.send(Request::Read(id));
+    pub fn read(&self, window: WindowId, id: u64) {
+        let _ = self.0.send(Request::Read(window, id));
     }
 
-    pub fn write(&self, id: u64, text: String) {
-        let _ = self.0.send(Request::Write(id, text));
+    pub fn write(&self, window: WindowId, id: u64, text: String) {
+        let _ = self.0.send(Request::Write(window, id, text));
     }
 }
 

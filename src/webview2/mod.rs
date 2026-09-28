@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tao::event_loop::EventLoopProxy;
+use tao::window::WindowId;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use windows_core::{HSTRING, Interface};
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
@@ -24,14 +25,15 @@ use hevc::{Cmd, Session};
 const SHIM: &str = include_str!("hevc_shim.js");
 const RING_BYTES: usize = 32 << 20;
 
-/// WebView2's part of the window: no browser chords of its own, so Ctrl+W, Ctrl+R,
-/// F5 and the rest reach the page as they do in an installed app window; no context
-/// menu, since a right click on the remote surface is the remote's (the developer
-/// tools keep theirs, for Inspect); and a page that keeps painting, playing and
-/// holding its socket while the window is behind another.
+/// WebView2's part of every web view, the library's included: no browser chords of its
+/// own, so Ctrl+W, Ctrl+R, F5 and the rest reach the page as they do in an installed
+/// app window; no context menu, since a right click on the remote surface is the
+/// remote's (the developer tools keep theirs, for Inspect); and a page that keeps
+/// painting, playing and holding its socket while the window is behind another. The
+/// web views share one data directory, and WebView2 refuses a second set of browser
+/// arguments over it, so every one is given the same.
 pub fn configure(builder: WebViewBuilder<'_>, devtools: bool) -> WebViewBuilder<'_> {
     builder
-        .with_initialization_script_for_main_only(SHIM, true)
         .with_browser_accelerator_keys(false)
         .with_default_context_menus(devtools)
         .with_additional_browser_args(
@@ -41,13 +43,49 @@ pub fn configure(builder: WebViewBuilder<'_>, devtools: bool) -> WebViewBuilder<
         )
 }
 
+/// A gateway's web view: the HEVC shim in its page.
+pub fn shim(builder: WebViewBuilder<'_>) -> WebViewBuilder<'_> {
+    builder.with_initialization_script_for_main_only(SHIM, true)
+}
+
+/// What a decoder thread asks of its window's web view, on the UI thread.
+pub enum MediaEvent {
+    /// A JSON message for the shim.
+    Post(String),
+    /// A decoder needs `count` shared slots of `bytes` each.
+    NeedSlots {
+        session: u32,
+        bytes: usize,
+        count: usize,
+        reply: std::sync::mpsc::Sender<Result<Vec<(u32, usize)>>>,
+    },
+    /// A slot no decoder will use again.
+    Retire(u32),
+}
+
+/// The event loop, addressed to one gateway window's `Media`.
+#[derive(Clone)]
+pub struct MediaProxy {
+    pub proxy: EventLoopProxy<UserEvent>,
+    pub window: WindowId,
+}
+
+impl MediaProxy {
+    /// Fails once the event loop has gone.
+    pub fn send(&self, event: MediaEvent) -> Result<()> {
+        self.proxy
+            .send_event(UserEvent::Media(self.window, event))
+            .map_err(|_| anyhow::anyhow!("the event loop has gone"))
+    }
+}
+
 struct Slot {
     buffer: ICoreWebView2SharedBuffer,
     session: u32,
 }
 
 pub struct Media {
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: MediaProxy,
     core: ICoreWebView2,
     core17: ICoreWebView2_17,
     env12: ICoreWebView2Environment12,
@@ -60,7 +98,7 @@ pub struct Media {
 }
 
 impl Media {
-    pub fn new(webview: &WebView, proxy: EventLoopProxy<UserEvent>) -> Result<Self> {
+    pub fn new(webview: &WebView, proxy: MediaProxy) -> Result<Self> {
         let core = webview.webview();
         let env = webview.environment();
         Ok(Self {
@@ -76,15 +114,14 @@ impl Media {
         })
     }
 
-    pub fn event(&mut self, event: UserEvent) -> Result<()> {
+    pub fn event(&mut self, event: MediaEvent) -> Result<()> {
         match event {
             // SAFETY: a COM call on the UI thread.
-            UserEvent::Post(json) => unsafe { self.core.PostWebMessageAsJson(&HSTRING::from(json))? },
-            UserEvent::NeedSlots { session, bytes, count, reply } => {
+            MediaEvent::Post(json) => unsafe { self.core.PostWebMessageAsJson(&HSTRING::from(json))? },
+            MediaEvent::NeedSlots { session, bytes, count, reply } => {
                 let _ = reply.send(self.make_slots(session, bytes, count));
             }
-            UserEvent::Retire(slot) => self.retire(slot)?,
-            _ => unreachable!("the shell handles its own events"),
+            MediaEvent::Retire(slot) => self.retire(slot)?,
         }
         Ok(())
     }

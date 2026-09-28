@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>remotex</title>
+<!--
+  The library: the saved gateways as a list, in the order their rows are dragged
+  into, and beside it a form for the one selected, a name and the gateway's URL.
+  Nothing is saved until it is asked to be: Save writes the form into the selected
+  gateway, or makes a new one of it when none is selected, and Connect does the same
+  before opening it. Moving to another row, New or closing the window with something
+  unsaved asks whether to keep it, the way a document does.
+
+  The viewer keeps the list (profiles.rs); this page asks it with
+  `ipc.postMessage` and is answered through `library.receive`.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f3f3f3;
+    --surface: #ffffff;
+    --text: #1b1b1b;
+    --muted: #5f5f5f;
+    --border: #d4d4d4;
+    --field: #ffffff;
+    --hover: #eaeaea;
+    --selected: #dbe7f7;
+    --accent: #0a5fb4;
+    --accent-text: #ffffff;
+    --error-bg: #fde7e9;
+    --error-text: #a4262c;
+    --focus: #0a5fb4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #202020;
+      --surface: #2b2b2b;
+      --text: #f0f0f0;
+      --muted: #a8a8a8;
+      --border: #454545;
+      --field: #1f1f1f;
+      --hover: #383838;
+      --selected: #1f3a5c;
+      --accent: #4ca0f0;
+      --accent-text: #0b0b0b;
+      --error-bg: #442726;
+      --error-text: #ffb4ab;
+      --focus: #4ca0f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    padding: 24px 16px;
+  }
+  main {
+    display: grid;
+    grid-template-columns: 240px 360px;
+    gap: 24px;
+    align-items: stretch;
+  }
+  @media (max-width: 660px) {
+    main { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 360px; }
+  }
+  .list-panel { display: flex; flex-direction: column; gap: 4px; }
+  #list {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 8rem;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+  }
+  #list:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+  .row {
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: default;
+    user-select: none;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .row:hover { background: var(--hover); }
+  .row[aria-selected="true"] { background: var(--selected); }
+  .row.dragging { opacity: 0.5; }
+  .row .title, .row .detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .title { font-weight: 600; }
+  .row .detail { font-size: 12px; color: var(--muted); }
+  .tools { display: flex; gap: 4px; }
+  form { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  label { display: flex; flex-direction: column; gap: 4px; }
+  input {
+    font: inherit;
+    color: var(--text);
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+  }
+  input:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 12px;
+    min-height: 32px;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { opacity: 0.45; }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  button.accent { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.accent:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+  .tools button { width: 32px; padding: 0; font-size: 18px; line-height: 1; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  #message {
+    background: var(--error-bg);
+    color: var(--error-text);
+    border-radius: 4px;
+    padding: 8px 12px;
+  }
+  #message:empty { display: none; }
+  dialog {
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    width: min(420px, calc(100vw - 32px));
+  }
+  dialog::backdrop { background: rgb(0 0 0 / 0.35); }
+  dialog h2 { font-size: 16px; margin: 0 0 8px; overflow-wrap: anywhere; }
+  dialog p { margin: 0 0 16px; color: var(--muted); }
+  dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main>
+  <div class="list-panel">
+    <div id="list" role="listbox" tabindex="0" aria-label="Saved gateways"></div>
+    <div class="tools">
+      <button type="button" id="add" title="New gateway" aria-label="New gateway">+</button>
+      <button type="button" id="remove" title="Delete this gateway" aria-label="Delete this gateway">−</button>
+    </div>
+  </div>
+  <form id="form" autocomplete="off" novalidate>
+    <h1>Connect to a remotex gateway</h1>
+    <label>Name
+      <input id="name" placeholder="the address, if none" spellcheck="false">
+    </label>
+    <label>Gateway URL
+      <input id="url" placeholder="https://gateway.example/" spellcheck="false" inputmode="url">
+    </label>
+    <div id="message" role="alert"></div>
+    <div class="actions">
+      <button type="button" id="save">Save</button>
+      <button type="submit" class="accent">Connect</button>
+    </div>
+  </form>
+</main>
+<dialog id="dialog">
+  <form method="dialog">
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-text"></p>
+    <div class="buttons" id="dialog-buttons"></div>
+  </form>
+</dialog>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const list = $("list");
+  const nameBox = $("name");
+  const urlBox = $("url");
+  const saveButton = $("save");
+  const removeButton = $("remove");
+  const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+
+  // --- The viewer: its requests, answered with the list as it now is.
+  let profiles = [];
+  let current = null;
+  let loaded = false;
+  // The form has been on the screen, so what is in it may have been typed.
+  let presented = false;
+  const pending = new Map();
+  let nextId = 1;
+  const ask = (message) =>
+    new Promise((resolve) => {
+      const id = nextId++;
+      pending.set(id, resolve);
+      send({ ...message, id });
+    });
+
+  const find = (id) => profiles.find((p) => p.id === id) ?? null;
+  const stored = () => (current === null ? null : find(current));
+  const empty = { name: "", url: "" };
+  const titleOf = (p) => p.name || p.url;
+
+  // --- The form.
+
+  function fill(profile) {
+    nameBox.value = profile.name;
+    urlBox.value = profile.url;
+    say(null);
+    removeButton.disabled = current === null;
+    edited();
+  }
+
+  // Whether the form differs from what is saved: the selected gateway, or nothing for
+  // one not saved yet.
+  function hasEdits() {
+    const s = stored() ?? empty;
+    return nameBox.value.trim() !== s.name || urlBox.value.trim() !== s.url;
+  }
+
+  function edited() {
+    saveButton.disabled = !hasEdits();
+  }
+
+  function say(message) {
+    $("message").textContent = message ?? "";
+  }
+
+  function fail(reason, field) {
+    say(reason);
+    field.focus();
+  }
+
+  // Write the form into the gateway it is showing, or into a new one when it is
+  // showing none; false, with the reason on the form, when it cannot be.
+  async function commit() {
+    if (urlBox.value.trim() === "") {
+      fail("A gateway URL is needed.", urlBox);
+      return false;
+    }
+    const reply = await ask({ t: "put", profile: current, name: nameBox.value, url: urlBox.value });
+    if (!reply.ok) {
+      fail(reply.error, urlBox);
+      return false;
+    }
+    current = reply.value.id;
+    render();
+    fill(reply.value);
+    return true;
+  }
+
+  async function connect() {
+    if (await commit()) {
+      send({ t: "connect", profile: current });
+    }
+  }
+
+  // --- Asking.
+
+  let asking = false;
+  // One dialog at a time; a second asked for while one is up is answered as dismissed.
+  function dialog(title, text, buttons) {
+    if (asking) {
+      return Promise.resolve("");
+    }
+    asking = true;
+    const d = $("dialog");
+    $("dialog-title").textContent = title;
+    $("dialog-text").textContent = text;
+    const row = $("dialog-buttons");
+    row.replaceChildren(
+      ...buttons.map(({ label, value, accent, focus }) => {
+        const b = document.createElement("button");
+        b.value = value;
+        b.textContent = label;
+        if (accent) {
+          b.className = "accent";
+        }
+        b.dataset.focus = String(Boolean(focus));
+        return b;
+      }),
+    );
+    d.returnValue = "";
+    return new Promise((resolve) => {
+      d.addEventListener(
+        "close",
+        () => {
+          asking = false;
+          resolve(d.returnValue);
+        },
+        { once: true },
+      );
+      d.showModal();
+      row.querySelector('[data-focus="true"]')?.focus();
+    });
+  }
+
+  // Ask what to do with unsaved edits, when there are any: true once the form holds
+  // nothing that is not saved or let go of, false to stay put. Letting go puts the
+  // form back as it is saved, so what was typed does not come back with the window.
+  async function settle() {
+    if (!hasEdits()) {
+      return true;
+    }
+    const s = stored();
+    const answer = await dialog(
+      s === null ? "Save this gateway?" : `Save the changes to “${titleOf(s)}”?`,
+      "What is typed into the form is lost otherwise.",
+      [
+        { label: "Cancel", value: "" },
+        { label: "Don't Save", value: "drop" },
+        { label: "Save", value: "save", accent: true, focus: true },
+      ],
+    );
+    if (answer === "save") {
+      return commit();
+    }
+    if (answer === "drop") {
+      fill(s ?? empty);
+      return true;
+    }
+    return false;
+  }
+
+  // --- The list.
+
+  function render() {
+    list.replaceChildren(
+      ...profiles.map((p) => {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.setAttribute("role", "option");
+        row.draggable = true;
+        row.dataset.id = p.id;
+        row.setAttribute("aria-selected", String(p.id === current));
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = titleOf(p);
+        row.append(title);
+        if (p.name) {
+          const detail = document.createElement("div");
+          detail.className = "detail";
+          detail.textContent = p.url;
+          row.append(detail);
+        }
+        return row;
+      }),
+    );
+  }
+
+  // Show `id` in the form, and keep it as the one showing.
+  function select(id) {
+    const row = id === null ? null : list.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    current = row ? id : null;
+    send({ t: "select", profile: current });
+    for (const r of list.children) {
+      r.setAttribute("aria-selected", String(r === row));
+    }
+    row?.scrollIntoView({ block: "nearest" });
+    fill(stored() ?? empty);
+  }
+
+  // Moving off a gateway with something unsaved typed into it asks first, and staying
+  // is staying: the selection does not move.
+  async function choose(id) {
+    if (id === current) {
+      return;
+    }
+    if (await settle()) {
+      select(id);
+    }
+  }
+
+  list.addEventListener("click", (e) => {
+    const row = e.target.closest(".row");
+    if (row) {
+      choose(row.dataset.id);
+    }
+  });
+  list.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".row")) {
+      connect();
+    }
+  });
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") {
+      return;
+    }
+    e.preventDefault();
+    const at = profiles.findIndex((p) => p.id === current);
+    const next = profiles[Math.max(0, Math.min(profiles.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))];
+    if (next) {
+      choose(next.id);
+    }
+  });
+
+  // A row dragged is moved among the others as it goes; where it is dropped is the
+  // new order, saved, and neither moves the selection.
+  let dragged = null;
+  list.addEventListener("dragstart", (e) => {
+    dragged = e.target.closest(".row");
+    dragged?.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  list.addEventListener("dragover", (e) => {
+    if (!dragged) {
+      return;
+    }
+    e.preventDefault();
+    const over = e.target.closest(".row");
+    if (!over || over === dragged) {
+      return;
+    }
+    const box = over.getBoundingClientRect();
+    over.parentNode.insertBefore(dragged, e.clientY < box.top + box.height / 2 ? over : over.nextSibling);
+  });
+  list.addEventListener("drop", (e) => e.preventDefault());
+  list.addEventListener("dragend", async () => {
+    if (!dragged) {
+      return;
+    }
+    dragged.classList.remove("dragging");
+    dragged = null;
+    const order = [...list.children].map((r) => r.dataset.id);
+    if (order.join("\n") === profiles.map((p) => p.id).join("\n")) {
+      return;
+    }
+    const reply = await ask({ t: "reorder", order });
+    if (!reply.ok) {
+      say(reply.error);
+    }
+    render();
+  });
+
+  // --- The buttons.
+
+  // Clear the form for a gateway not saved yet, which joins the list on Save or
+  // Connect, not before.
+  $("add").addEventListener("click", async () => {
+    if (!(await settle())) {
+      return;
+    }
+    select(null);
+    urlBox.focus();
+  });
+
+  $("remove").addEventListener("click", async () => {
+    const s = stored();
+    if (s === null) {
+      return;
+    }
+    const answer = await dialog(`Delete “${titleOf(s)}”?`, "It is removed from the list.", [
+      { label: "Cancel", value: "", focus: true },
+      { label: "Delete", value: "delete", accent: true },
+    ]);
+    if (answer !== "delete" || current !== s.id) {
+      return;
+    }
+    const at = profiles.findIndex((p) => p.id === s.id);
+    const reply = await ask({ t: "remove", profile: s.id });
+    if (!reply.ok) {
+      fail(reply.error, nameBox);
+      return;
+    }
+    render();
+    select(profiles[Math.min(at, profiles.length - 1)]?.id ?? null);
+  });
+
+  saveButton.addEventListener("click", () => commit());
+  // Enter in any field is Connect, which is what the button says too.
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    connect();
+  });
+  list.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && current !== null) {
+      e.preventDefault();
+      connect();
+    }
+  });
+  nameBox.addEventListener("input", edited);
+  urlBox.addEventListener("input", edited);
+
+  // --- The viewer's side.
+
+  globalThis.library = Object.freeze({
+    receive(m) {
+      if (m.state) {
+        profiles = m.state.profiles;
+      }
+      if (m.t === "state") {
+        render();
+        if (!loaded) {
+          loaded = true;
+          const first = find(m.state.selected)?.id ?? profiles[0]?.id ?? null;
+          select(first);
+        }
+      } else if (m.t === "reply") {
+        const resolve = pending.get(m.id);
+        pending.delete(m.id);
+        resolve?.(m);
+      } else if (m.t === "select") {
+        select(m.profile);
+      } else if (m.t === "show") {
+        // Put the cursor where typing should start: a saved gateway usually wants
+        // nothing at all.
+        presented = true;
+        say(null);
+        if (urlBox.value.trim() === "") {
+          urlBox.focus();
+        } else {
+          list.focus();
+        }
+      } else if (m.t === "closing") {
+        // Not while the form holds something unsaved that has been seen: it asks,
+        // and stays up when the answer was to keep it and it cannot be.
+        (presented && hasEdits() ? settle() : Promise.resolve(true)).then((ok) => {
+          if (ok) {
+            send({ t: "leave" });
+          }
+        });
+      }
+    },
+  });
+  send({ t: "ready" });
+})();
+</script>
+</body>
+</html>

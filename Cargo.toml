@@ -4,16 +4,21 @@ version.workspace = true
 edition = "2024"
 publish = false
 
-# The gateway's page in a window of its own, on Windows and macOS; Linux is out of
-# scope, so there the binary only says so. Built with Tauri's own window and web
-# view crates (tao, wry) and arboard, the clipboard crate Tauri's clipboard plugin
-# uses, rather than Tauri itself: there is one window showing a remote page, and
-# nothing here needs Tauri's commands, bundler or configuration.
-[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+# Gateways' pages in windows of their own, on Windows and macOS; Linux is out of
+# scope, and no command at the root builds this crate. Built with Tauri's own
+# window and web view crates (tao, wry) and arboard, the clipboard crate Tauri's
+# clipboard plugin uses, rather than Tauri itself: a library of gateways and a
+# window showing each one's page need none of Tauri's commands, bundler or
+# configuration.
+[dependencies]
 anyhow = "1"
 arboard = { version = "3", default-features = false }
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tao = "0.37"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
 wry = "0.57"
 
 # WebView2 decodes no HEVC 4:4:4, so on Windows the page's HEVC goes to FFmpeg's
@@ -25,6 +30,9 @@ windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
