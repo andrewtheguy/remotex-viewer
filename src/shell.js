@@ -1,5 +1,5 @@
 // Injected into every document at the gateway's origin in a gateway window (main
-// frame only), on every OS.
+// frame only).
 //
 // The page is the gateway's, unchanged. This makes the web platform it already uses
 // do what it promises in a window of its own:

@@ -45,7 +45,6 @@ impl Library {
                 let _ = ipc.send_event(UserEvent::Library(request.into_body()));
             })
             .with_devtools(devtools);
-        #[cfg(windows)]
         let builder = crate::webview2::configure(builder, devtools);
         let webview = builder.build(&window)?;
         Ok(Self { webview, window, ready: false, pending: Vec::new(), shown: false })

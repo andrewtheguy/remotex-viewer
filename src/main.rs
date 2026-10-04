@@ -15,11 +15,14 @@
 //!   and Alt+Tab included, windowed or not;
 //! - the page's clipboard is the system clipboard, with no prompt and no focus rule;
 //! - `window.resizeTo` sizes this window, so the page's **Size to** item works;
-//! - on Windows, the page's HEVC decodes in this process (`webview2`).
+//! - the page's HEVC decodes in this process (`webview2`).
 
 // A window, not a console program: Windows opens no console for it. What stops it
 // starting is shown by `os::fatal` instead.
-#![cfg_attr(windows, windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
+
+#[cfg(not(windows))]
+compile_error!("remotex-viewer is for Windows alone; Linux and macOS are out of its scope");
 
 mod app;
 mod clipboard;
@@ -28,7 +31,6 @@ mod keys;
 mod library;
 mod os;
 mod profiles;
-#[cfg(windows)]
 mod webview2;
 
 fn main() -> std::process::ExitCode {
@@ -57,6 +59,5 @@ pub enum UserEvent {
     /// nothing for a write.
     Clipboard { window: tao::window::WindowId, id: u64, result: anyhow::Result<String> },
     /// A decoder thread's request of its window's web view.
-    #[cfg(windows)]
     Media(tao::window::WindowId, webview2::MediaEvent),
 }
