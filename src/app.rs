@@ -156,7 +156,6 @@ impl App {
                     gateway.clipboard(id, result)?;
                 }
             }
-            #[cfg(windows)]
             UserEvent::Media(id, event) => {
                 if let Some(gateway) = self.gateways.get_mut(&id) {
                     gateway.media(event)?;
@@ -282,7 +281,7 @@ impl App {
         let want = self
             .gateways
             .values()
-            .find(|g| os::HOLDS_KEYS && g.window_focused && g.surface_focused)
+            .find(|g| g.window_focused && g.surface_focused)
             .map(Gateway::id);
         if want == self.keys.as_ref().map(|(id, _)| *id) {
             return Ok(());

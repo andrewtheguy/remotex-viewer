@@ -20,7 +20,6 @@ const CASCADE_WRAP: usize = 8;
 
 pub struct Gateway {
     // Dropped in this order: the decoders, the web view, then the window under it.
-    #[cfg(windows)]
     media: crate::webview2::Media,
     webview: WebView,
     pub window: Window,
@@ -63,7 +62,6 @@ impl Gateway {
                 let _ = titles.send_event(UserEvent::Title(id, title));
             })
             .with_devtools(devtools);
-        #[cfg(windows)]
         let builder = crate::webview2::configure(builder, devtools)
             .with_initialization_script_for_main_only(only_at(&page_origin, crate::webview2::SHIM), true);
         let webview = builder.build(&window)?;
@@ -78,7 +76,6 @@ impl Gateway {
             eprintln!("remotex-viewer: {e:#}");
         }
         let gateway = Self {
-            #[cfg(windows)]
             media: crate::webview2::Media::new(&webview, crate::webview2::MediaProxy { proxy: proxy.clone(), window: id })?,
             webview,
             window,
@@ -125,10 +122,7 @@ impl Gateway {
                 let text = m["text"].as_str().context("text")?.to_owned();
                 clipboard.write(self.id(), m["id"].as_u64().context("id")?, text);
             }
-            #[cfg(windows)]
             _ => self.media.page(m)?,
-            #[cfg(not(windows))]
-            other => eprintln!("remotex-viewer: an unknown page message {other:?}"),
         }
         Ok(())
     }
@@ -149,7 +143,6 @@ impl Gateway {
         self.send(json!({"t": "capture", "on": on}))
     }
 
-    #[cfg(windows)]
     pub fn media(&mut self, event: crate::webview2::MediaEvent) -> Result<()> {
         self.media.event(event)
     }

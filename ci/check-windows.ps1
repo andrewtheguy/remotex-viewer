@@ -1,4 +1,4 @@
-# The Windows half of ci/check.sh, run on windows-ci-build in the tree it staged:
+# What ci/check.sh runs on windows-ci-build, in the tree it staged:
 # clippy against the libavcodec prefix staged there.
 #Requires -Version 7
 $ErrorActionPreference = 'Stop'

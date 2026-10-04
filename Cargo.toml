@@ -4,27 +4,25 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-# remotex gateways' pages in windows of their own, on Windows and macOS; Linux is
-# out of scope, and nothing is done to make it build there. Built with Tauri's own
-# window and web view crates (tao, wry) and arboard, the clipboard crate Tauri's
-# clipboard plugin uses, rather than Tauri itself: a library of gateways and a
-# window showing each one's page need none of Tauri's commands, bundler or
-# configuration.
+# remotex gateways' pages in windows of their own, on Windows. It is an alpha. Linux
+# and macOS are out of scope, and nothing is done to make it build there (`main.rs`
+# refuses). Built with Tauri's own window and web view crates (tao, wry) and arboard,
+# the clipboard crate Tauri's clipboard plugin uses, rather than Tauri itself: a
+# library of gateways and a window showing each one's page need none of Tauri's
+# commands, bundler or configuration.
+#
+# WebView2 decodes no HEVC 4:4:4, so the page's HEVC goes to FFmpeg's decoder in this
+# process — the same one remotex links for `apple-hp-media`.
 [dependencies]
 anyhow = "1"
 arboard = { version = "3", default-features = false }
+avcodec-hevc-sys = { package = "libavcodec-hevc-prebuilt-sys", git = "https://github.com/andrewtheguy/libavcodec-hevc-prebuilt", tag = "v9.0.2-20260928041244-5fdbab1" }
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tao = "0.37"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-wry = "0.57"
-
-# WebView2 decodes no HEVC 4:4:4, so on Windows the page's HEVC goes to FFmpeg's
-# decoder in this process — the same one remotex links for `apple-hp-media`.
-[target.'cfg(windows)'.dependencies]
-avcodec-hevc-sys = { package = "libavcodec-hevc-prebuilt-sys", git = "https://github.com/andrewtheguy/libavcodec-hevc-prebuilt", tag = "v9.0.2-20260928041244-5fdbab1" }
 webview2-com = "0.39"
 windows-core = "0.62"
 windows = { version = "0.62", features = [
@@ -37,7 +35,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+wry = "0.57"
 
 # The icon, as a resource of the executable (`build.rs`).
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
 embed-resource = "3"

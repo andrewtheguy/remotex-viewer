@@ -1,16 +1,19 @@
 # remotex-viewer
 
 `remotex-viewer` shows [remotex](https://github.com/andrewtheguy/remotex) gateways'
-pages, each in a window of its own, on Windows now and macOS next. Linux is out of scope,
-and nothing is done to make it build there. It is versioned and released apart from
+pages, each in a window of its own, on Windows. It is versioned and released apart from
 remotex: the two meet at the page, over the [interop protocol](docs/interop.md).
+
+**This is an alpha.** It is incomplete and changing: what it does is below, and what it
+does not do yet is at the end. Windows is its only platform; Linux and macOS are out of
+scope, and nothing is done to make it build there.
 
 ```sh
 remotex-viewer [https://gateway.example/] [--devtools]
 ```
 
-On Windows it is a window program, not a console one: starting it opens no console, and
-what stops it starting — a bad argument, say — is shown in a message box.
+It is a window program, not a console one: starting it opens no console, and what stops
+it starting — a bad argument, say — is shown in a message box.
 
 ## The library
 
@@ -34,8 +37,8 @@ the archived `wlshare-windows` client, with the same rules:
 - A URL is http or https, and a bare host is an https one.
 
 The list, which gateway the form was last showing and where the library window was
-left are `profiles.json` in the viewer's data directory (`%LOCALAPPDATA%\remotex-viewer`
-on Windows), written beside itself and moved into place. The library opens where it
+left are `profiles.json` in the viewer's data directory, `%LOCALAPPDATA%\remotex-viewer`,
+written beside itself and moved into place. The library opens where it
 was last left, clamped into the work area of the screen that place is on, and in the
 middle of the screen the first time or when that screen is gone.
 
@@ -60,9 +63,8 @@ way back to it from one is **Library** in the window's system menu — a right c
 the title bar, or Alt+Space while the remote does not hold the keyboard — or launching
 the viewer again. In full screen neither is in reach until full screen is left.
 
-On Windows the first launch holds a named mutex and a message-only window, and a later
-one sends that window its URL (`os::claim_instance`). On macOS, Launch Services keeps
-an app bundle to one copy already.
+The first launch holds a named mutex and a message-only window, and a later one sends
+that window its URL (`os::claim_instance`).
 
 Every web view shares one data directory (`WebView2` in the data directory), so every
 gateway window has the same browser profile, as a browser's tabs do; a gateway's login
@@ -81,12 +83,12 @@ tools and, for their Inspect item, its context menu, in every window.
 It is built from Tauri's own window and web view crates, tao and wry, and arboard, the
 clipboard crate Tauri's clipboard plugin uses — not Tauri itself: a library and a
 window for each gateway's page need none of Tauri's commands, bundler or
-configuration. The same crates run on macOS, where the web view is WKWebView.
+configuration.
 
 ### What the shell does
 
 `src/shell.js` is injected into every document of a gateway window that is at the
-gateway's origin, on every OS; `src/gateway.rs` answers it, and nothing from any other
+gateway's origin; `src/gateway.rs` answers it, and nothing from any other
 origin: a page a link or a redirect leads to is a plain page, with no clipboard of the
 shell's and no say over the window. The keyboard is held for one window at a time, the one in
 front with its remote surface focused.
@@ -110,12 +112,12 @@ display's mode under a desktop drawn at its pixels.
 #### Keys
 
 While the window is in front and the page's remote surface (its `role="application"`
-element) has focus, windowed or full screen, the shell holds the keyboard: an OS hook
-(`os::hook_keys`; on Windows a low-level keyboard hook) takes every key ahead of the OS's
-shortcuts and the shell hands it to the page, where `shell.js` dispatches it on the
-focused element as the `keydown`/`keyup` the page already listens for. The code is the
-UI Events code, from tao's scancode tables (`keys::dom_code`); the modifier flags are
-the keys the shell is holding; Caps Lock is learnt from the last real event. Keys the
+element) has focus, windowed or full screen, the shell holds the keyboard: a low-level
+keyboard hook (`os::hook_keys`) takes every key ahead of Windows's own shortcuts and the
+shell hands it to the page, where `shell.js` dispatches it on the focused element as the
+`keydown`/`keyup` the page already listens for. The code is the UI Events code, from
+tao's scancode tables (`keys::dom_code`); the modifier flags are the keys the shell is
+holding; Caps Lock is learnt from the last real event. Keys the
 web has no code for stay with the OS, as do injected keys, Ctrl+Alt+Del and Win+L.
 
 A browser hands a page the OS's keys only in full screen, because that is where Keyboard
@@ -144,7 +146,7 @@ focus requirement a browser puts in front of both.
 fits the result to the monitor's work area and keeps the window on it. A desktop larger
 than the screen scrolls, as it does in any window.
 
-## HEVC on Windows
+## HEVC
 
 No Windows browser decodes a High Performance Mac's HEVC 4:4:4, so WebView2 gets it from
 the viewer (`src/webview2/`), in a page that speaks version 1 of the
@@ -158,11 +160,9 @@ time question answers yes to the Mac's HEVC, so a target with `media_passthrough
 it. The Mac's AAC-ELD needs nothing: WebView2's own `AudioDecoder` takes it in the raw
 AudioSpecificConfig form the page already probes for.
 
-On macOS, WKWebView decodes the Mac's HEVC itself, so none of this applies there.
-
 ## Building
 
-On Windows or macOS. The Windows half needs FFmpeg's prebuilt HEVC decoder,
+On Windows. It needs FFmpeg's prebuilt HEVC decoder,
 [libavcodec-hevc-prebuilt](https://github.com/andrewtheguy/libavcodec-hevc-prebuilt),
 which `LIBAVCODEC_HEVC_PREBUILT_DIR` points at on `windows-ci-build`.
 
@@ -179,7 +179,7 @@ SVG, run the script, commit both.
 
 ## Releasing
 
-The viewer is in no public release: on Windows it links FFmpeg's libavcodec statically
+The viewer is in no public release: it links FFmpeg's libavcodec statically
 (LGPL-2.1-or-later), which keeps it out of public release artifacts as it keeps remotex's
 `apple-hp-media` out of them. A release is a tag, `v` and the version in `Cargo.toml`,
 pushed here; `packaging/publish-windows-viewer.sh TAG` then builds that tag's installer,
@@ -202,9 +202,6 @@ redistributable. The WebView2 runtime ships with Windows.
 
 ## Not yet
 
-- macOS: the key hook (a `CGEventTap`) and the work area (`NSScreen.visibleFrame`) are
-  stubs.
-- macOS: a later launch reaches the running viewer as a reopen, which it does not
-  take yet, and **Library** belongs in the app's menu bar, which it has no item in yet.
-- macOS: the icon, which is an app bundle's (an `.icns` from the same SVG).
+An alpha, so this list is expected to move.
+
 - A remembered size for a gateway's window.

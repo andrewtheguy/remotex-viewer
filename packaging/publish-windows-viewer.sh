@@ -2,7 +2,7 @@
 # Build remotex-viewer's Windows installer from a release tag and attach it to a release
 # of the same name in the operator's private repository, andrewtheguy/remotex-viewer-releases.
 #
-# The viewer has no public release: on Windows it links FFmpeg's HEVC decoder, whose
+# The viewer has no public release: it links FFmpeg's HEVC decoder, whose
 # licence keeps it out of public release artifacts, as it keeps remotex's
 # `apple-hp-media` feature out of them. The repository must stay private; the script
 # refuses one that is not.
@@ -97,7 +97,7 @@ scp -q "${windows}:${built}" "$out/$msi"
 
 echo ">> publishing ${releases} ${tag}"
 gh release create "$tag" --repo "$releases" --title "remotex-viewer ${version}" --notes "$(cat <<EOF
-remotex-viewer ${version}'s installer for Windows x86-64, built from andrewtheguy/remotex-viewer ${tag} (${commit}).
+remotex-viewer ${version}, an alpha: its installer for Windows x86-64, built from andrewtheguy/remotex-viewer ${tag} (${commit}).
 
 The installer puts remotex viewer under Program Files with a Start menu shortcut, and the Visual C++ runtime beside it. The viewer links FFmpeg ${ffmpeg}'s libavcodec (LGPL-2.1-or-later) statically, from ${hevc_archives} ${pin}, and needs the WebView2 runtime, which ships with Windows 11 and current Windows 10.
 EOF

@@ -1,3 +1,16 @@
+//! What the shell needs from Windows and tao does not give it.
+//!
+//! - `hook_keys`: take keys from Windows ahead of its own shortcuts, handing each to
+//!   `sink` by scancode (see `keys::dom_code`); a key `sink` declines goes on to
+//!   Windows. The keys stay taken until the returned hook is dropped.
+//! - `work_area`: the part of a screen that windows may occupy.
+//! - `claim_instance`: make this the one viewer running, or hand what this launch was
+//!   for to the one that is and say to stop.
+//! - `library_item`: a way to the library from a gateway window that takes nothing
+//!   from its page.
+//! - `with_icon`: the app's icon on a window about to be built.
+//! - `fatal`: say why the viewer could not start, where its user will see it.
+
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::{Duration, Instant};
@@ -21,16 +34,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_core::{HSTRING, PCWSTR, w};
 
-use super::{KeySink, LaunchSink, LibrarySink};
-
 // A low-level hook procedure takes no context, so its sink and window are process-wide;
 // only the gateway window holding the keyboard has a hook, so there is at most one.
 static SINK: Mutex<Option<KeySink>> = Mutex::new(None);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 pub struct KeyHook(HHOOK);
-
-pub const HOLDS_KEYS: bool = true;
 
 /// A low-level keyboard hook: it sees a key before the shell does, so the Windows key,
 /// Alt+Tab, Alt+F4 and Ctrl+Esc are the page's while it is installed. Only keys typed
@@ -265,3 +274,12 @@ pub fn fatal(message: &str) {
     // SAFETY: no owner window, and both strings outlive the call.
     unsafe { MessageBoxW(None, &HSTRING::from(message), w!("remotex viewer"), MB_OK | MB_ICONERROR) };
 }
+
+/// Given a key's scancode and whether it went down; answers whether it took it.
+pub type KeySink = Box<dyn Fn(u32, bool) -> bool + Send>;
+
+/// Given what a later launch was for: its gateway URL, or empty for the library.
+pub type LaunchSink = Box<dyn Fn(String) + Send>;
+
+/// Called when a gateway window asks for the library.
+pub type LibrarySink = Box<dyn Fn() + Send>;
